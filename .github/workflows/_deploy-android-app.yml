@@ -1,0 +1,108 @@
+name: 📦🚀 Build & deploy Android app for an environment
+
+on:
+  workflow_call:
+    inputs:
+      environment-name:
+        required: true
+        type: string
+      environment-url:
+        required: true
+        type: string
+      package-name:
+        required: true
+        type: string
+      release-status:
+        required: true
+        type: string
+      short-environment-name:
+        required: true
+        type: string
+      flavor:
+        required: true
+        type: string
+
+jobs:
+  deployAndroid:
+    name: 🤖📦🚀 Build & deploy Android ${{ inputs.short-environment-name }} release
+    runs-on: ubuntu-latest
+    environment:
+      name: ${{ inputs.environment-name }}
+      url: ${{ inputs.environment-url }}
+    steps:
+      - name: ⬇️ Checkout repository
+        uses: actions/checkout@v3
+      - name: 🔐 Add environment values
+        env:
+          DEV_ENV_BASE64: "${{ secrets.DEV_ENV_BASE64 }}"
+          UAT_ENV_BASE64: "${{ secrets.UAT_ENV_BASE64 }}"
+          PROD_ENV_BASE64: "${{ secrets.PROD_ENV_BASE64 }}"
+        run: |
+          # create variables
+          DEV_ENV_PATH="${{ github.workspace }}/.dev.env"
+          UAT_ENV_PATH="${{ github.workspace }}/.uat.env"
+          PROD_ENV_PATH="${{ github.workspace }}/.prod.env"
+
+          echo -n "$DEV_ENV_BASE64" | base64 --decode -o $DEV_ENV_PATH
+          echo -n "$UAT_ENV_BASE64" | base64 --decode -o $UAT_ENV_PATH
+          echo -n "$PROD_ENV_BASE64" | base64 --decode -o $PROD_ENV_PATH
+      - name: Set up Java
+        uses: actions/setup-java@v2
+        with:
+          java-version: 17
+          distribution: "temurin"
+        id: java
+      - name: ⚙️ Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.27.1"
+          channel: "stable"
+          cache: true
+        id: flutter
+      - name: 🔐 Retrieve base64 keystore and decode it to a file
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_FILE_BASE64 }}
+        run: echo $KEYSTORE_BASE64 | base64 --decode > "${{ github.workspace }}/upload-key.jks"
+      - name: 📝🔐 Create keystore.properties file
+        env:
+          KEYSTORE_PROPERTIES_PATH: ${{ github.workspace }}/android/key.properties
+        run: |
+          echo 'storeFile=${{ github.workspace }}/upload-key.jks' > $KEYSTORE_PROPERTIES_PATH
+          echo 'keyAlias=${{ secrets.KEYSTORE_KEY_ALIAS }}' >> $KEYSTORE_PROPERTIES_PATH
+          echo 'storePassword=${{ secrets.KEYSTORE_PASSWORD }}' >> $KEYSTORE_PROPERTIES_PATH
+          echo 'keyPassword=${{ secrets.KEYSTORE_KEY_PASSWORD }}' >> $KEYSTORE_PROPERTIES_PATH
+      - name: 🤖📦 Create Android ${{ inputs.short-environment-name }} appbundle release
+        run: |
+          mkdir debug-symbols
+          flutter build appbundle \
+            --release \
+            --flavor ${{ inputs.flavor }} \
+            --target lib/main_${{ inputs.flavor }}.dart
+      - name: 🤖🚀 Upload Android ${{ inputs.short-environment-name }} Release to Play Store
+        uses: r0adkll/upload-google-play@v1.0.19
+        id: deploy_app
+        with:
+          packageName: ${{ inputs.package-name }}
+          track: internal
+          status: ${{ inputs.release-status }}
+          releaseFiles: ${{ github.workspace }}/build/app/outputs/bundle/${{ inputs.flavor }}Release/app-${{ inputs.flavor }}-release.aab
+          serviceAccountJsonPlainText: "${{ secrets.GOOGLE_PLAY_SERVICE_ACCOUNT_KEY_JSON }}"
+      - name: 💬 set  output message
+        id: endMessage
+        env:
+          ECHOWATER_POWER_AUTOMATE_URL: "${{ secrets.ECHOWATER_POWER_AUTOMATE_URL }}"
+        run: |
+          REPO_URL="https://github.com/${GITHUB_REPOSITORY}"
+          if [[ "${{ steps.deploy_app.outcome }}" == 'success' ]]; then
+            echo "message=New android build has been pushed to testflight for testing" >> "$GITHUB_OUTPUT"
+            curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"title":"${{ inputs.flavor }} android build deployed successfully", "message":"The Echo Water ${{ inputs.flavor }} android build deployment succeeded.", "platform": "android", "is_success": true, "github_url":"'$REPO_URL'"}' \
+            "$ECHOWATER_POWER_AUTOMATE_URL"
+          else
+            echo "message=Error in cd pipeline. Please check the logs" >> "$GITHUB_OUTPUT"
+            curl -X POST \
+            -H "Content-Type: application/json" \
+            -d '{"title":"${{ inputs.flavor }} android build deployment failed", "message":"The Echo Water ${{ inputs.flavor }} android build deployment failed. Please check github actions for further information", "platform": "android", "is_success": false, "github_url":"'$REPO_URL'"}' \
+            "$ECHOWATER_POWER_AUTOMATE_URL"
+          fi

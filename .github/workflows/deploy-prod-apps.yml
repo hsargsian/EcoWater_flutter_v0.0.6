@@ -1,0 +1,43 @@
+name: 📦🚀 Build & deploy Prod release
+
+permissions: write-all
+
+on:
+  pull_request:
+    branches: [echowater-prod]
+    types: [closed]
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
+      - ".git/"
+      - ".vscode/"
+
+jobs:
+  branchValidity:
+    name: Check for branch validity
+    runs-on: ubuntu-latest
+    outputs:
+      message: "${{ steps.check_branch_validity.outputs.message }}"
+    steps:
+      - name: 👁️ Check branch validity
+        id: check_branch_validity
+        run: |
+          if [ "${{ github.ref }}" != 'refs/heads/echowater-prod' ]; then
+            echo "message=⚠️ Error: you tried to create a release from '${{ github.ref }}' branch but echowater production releases for echowater prod environment can only be created from 'echowater-prod' branch" >> "$GITHUB_OUTPUT"
+          fi
+
+  deployProd:
+    name: Deploy Prod
+    uses: ./.github/workflows/_deploy-env-apps.yml
+    needs: branchValidity
+    secrets: inherit
+    if: needs.branchValidity.outputs.message == ''
+    with:
+      android-environment-name: "echowater"
+      android-environment-url: "https://play.google.com/console/u/0/developers/8461902245859450797/app/4972504786712431227/tracks/internal-testing"
+      android-package-name: "com.echowater.echoflask"
+      android-release-status: "completed"
+      ios-environment-name: "echowater"
+      ios-environment-url: "https://appstoreconnect.apple.com/apps/6739596759/testflight/ios"
+      short-environment-name: "Prod"
+      flavor: "prod"

@@ -1,0 +1,22 @@
+name: Teams Notification
+
+on:
+  workflow_call:
+    inputs:
+      # Common inputs
+      message:
+        required: true
+        type: string
+
+jobs:
+  sendTeamsNotification:
+    name: Send Teams Notification
+    runs-on: ubuntu-latest
+    steps:
+      - name: Notify dedicated teams channel
+        uses: jdcargile/ms-teams-notification@v1.4
+        with:
+          github-token: ${{ github.token }}
+          ms-teams-webhook-uri: ${{ secrets.MS_TEAMS_WEBHOOK_URI }}
+          notification-summary: ${{ inputs.message }}
+          verbose-logging: true

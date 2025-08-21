@@ -1,0 +1,19 @@
+{
+  "ci": true,
+  "dryRun": true,
+  "branches": [
+    "uat"
+  ],
+  "tagFormat": "release/uat/${version}",
+  "plugins": [
+    "@semantic-release/commit-analyzer",
+    "@semantic-release/release-notes-generator",
+    [
+      "@semantic-release/changelog",
+      {
+        "changelogFile": "CHANGELOG.md",
+        "changelogTitle": "# CHANGELOG"
+      }
+    ]
+  ]
+}

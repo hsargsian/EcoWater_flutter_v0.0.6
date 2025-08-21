@@ -1,0 +1,43 @@
+name: 📦🚀 Build & deploy Dev release
+
+permissions: write-all
+
+on:
+  pull_request:
+    branches: [ echowater-dev ]
+    types: [ closed ]
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
+      - ".git/"
+      - ".vscode/"
+
+jobs:
+  branchValidity:
+    name: Check for branch validity
+    runs-on: ubuntu-latest
+    outputs:
+      message: "${{ steps.check_branch_validity.outputs.message }}"
+    steps:
+      - name: 👁️ Check branch validity
+        id: check_branch_validity
+        run: |
+          if [ "${{ github.ref }}" != 'refs/heads/echowater-dev' ]; then
+            echo "message=⚠️ Error: you tried to create a release from '${{ github.ref }}' branch but echowater dev release for echowater dev environment can only be created from 'echowater-dev' branch" >> "$GITHUB_OUTPUT"
+          fi
+
+  deployDev:
+    name: Deploy Dev
+    uses: ./.github/workflows/_deploy-env-apps.yml
+    needs: branchValidity
+    secrets: inherit
+    if: needs.branchValidity.outputs.message == ''
+    with:
+      android-environment-name: "echowater"
+      android-environment-url: "https://play.google.com/console/u/0/developers/7200533445067191438/app/4976229890619914417/tracks/internal-testing"
+      android-package-name: "com.echowater.echowater.dev"
+      android-release-status: "completed"
+      ios-environment-name: "echowater"
+      ios-environment-url: "https://appstoreconnect.apple.com/apps/6593661096/testflight/ios"
+      short-environment-name: "Dev"
+      flavor: "dev"

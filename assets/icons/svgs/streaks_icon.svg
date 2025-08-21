@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="68px" height="91px" viewBox="0 0 68 91" version="1.1" xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+    <title>g10</title>
+    <g id="Page-1" stroke="none" stroke-width="1" fill="none" fill-rule="evenodd">
+        <g id="03_streak-ribbon" transform="translate(1.666800, 2.000133)" fill="#000000" fill-rule="nonzero">
+            <g id="g10" transform="translate(31.999999, 42.666666) scale(-1, 1) rotate(-180.000000) translate(-31.999999, -42.666666) ">
+                <g id="g60" transform="translate(0.000000, 0.000000)" stroke="#000000" stroke-width="3">
+                    <path d="M0,85.3333312 L0,0 L32,19.9119995 L64,0 L64,85.3333312 L0,85.3333312 Z M2.6666666,82.6666646 L61.3333318,82.6666646 L61.3333318,4.79999988 L33.4093325,22.1746661 L31.9999992,23.0519994 L30.5919992,22.1746661 L2.6666666,4.79999988 L2.6666666,82.6666646 Z" id="path62"></path>
+                </g>
+                <g id="g96" transform="translate(22.333200, 44.333465)">
+                    <g id="g98-Clipped" transform="translate(0.000000, 0.000000)">
+                        <g id="g104" transform="translate(0.000000, 0.000000)">
+                            <path d="M9.5,19 C4.253625,19 0,14.746375 0,9.5 C0,4.253625 4.253625,0 9.5,0 C14.746375,0 19,4.253625 19,9.5 C19,14.746375 14.746375,19 9.5,19 M9.5,14.25 C12.119625,14.25 14.25,12.119625 14.25,9.5 C14.25,6.880375 12.119625,4.75 9.5,4.75 C6.880375,4.75 4.75,6.880375 4.75,9.5 C4.75,12.119625 6.880375,14.25 9.5,14.25" id="path106"></path>
+                        </g>
+                    </g>
+                </g>
+            </g>
+        </g>
+    </g>
+</svg>

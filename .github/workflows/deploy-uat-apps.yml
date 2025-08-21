@@ -1,0 +1,38 @@
+name: 📦🚀 Build & deploy UAT release
+
+permissions: write-all
+
+on:
+  pull_request:
+    branches: [echowater-uat]
+    types: [closed]
+    paths-ignore:
+      - "**.md"
+      - "doc/**"
+      - ".git/"
+      - ".vscode/"
+
+jobs:
+  branchValidity:
+    name: Check for branch validity
+    runs-on: ubuntu-latest
+    steps:
+      - name: 👁️ Check branch validity
+        if: github.ref != 'refs/heads/echowater-uat'
+        run: |
+          echo "⚠️ Error: you tried to create a release from '${{ github.ref }}' branch but echowater uat releases for echowater uat environment can only be created from 'echowater-uat' branch"
+
+  deployUat:
+    name: Deploy UAT
+    uses: ./.github/workflows/_deploy-env-apps.yml
+    secrets: inherit
+    needs: branchValidity
+    with:
+      android-environment-name: "echowater"
+      android-environment-url: "https://play.google.com/console/u/0/developers/7200533445067191438/app/4975719898219218293/tracks/internal-testing"
+      android-package-name: "com.echowater.echoflask.uat"
+      android-release-status: "completed"
+      ios-environment-name: "echowater"
+      ios-environment-url: "https://appstoreconnect.apple.com/apps/6740247637/testflight"
+      short-environment-name: "UAT"
+      flavor: "uat"
