@@ -219,20 +219,20 @@ class _DashboardScreenState extends State<DashboardScreen>
         _setUpScreen();
       }
     } else if (state is FlaskFirmwareInfoFetchedState) {
-      if (state.firmwareInfo.hasUpgrade) {
-        Utilities.showBottomSheet(
-            isDismissable: false,
-            widget: UpgradeFirmwareDialog(
-              firmware: state.firmwareInfo,
-              flask: state.flask,
-              openUpgradeScreen: (blePath, mcuPath, imageLibraryPaths) {
-                Navigator.pop(context);
-                _openUpgradeScreen(
-                    state.flask, blePath, mcuPath, imageLibraryPaths);
-              },
-            ),
-            context: context);
-      }
+      // if (state.firmwareInfo.hasUpgrade) {
+      //   Utilities.showBottomSheet(
+      //       isDismissable: false,
+      //       widget: UpgradeFirmwareDialog(
+      //         firmware: state.firmwareInfo,
+      //         flask: state.flask,
+      //         openUpgradeScreen: (blePath, mcuPath, imageLibraryPaths) {
+      //           Navigator.pop(context);
+      //           _openUpgradeScreen(
+      //               state.flask, blePath, mcuPath, imageLibraryPaths);
+      //         },
+      //       ),
+      //       context: context);
+      // }
     }
   }
 

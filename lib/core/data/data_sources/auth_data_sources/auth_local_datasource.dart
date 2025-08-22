@@ -32,6 +32,11 @@ class AuthLocalDataSourceImpl extends AuthLocalDataSource {
     if (accessToken == null || refreshToken == null || userId == null) {
       throw CustomException.noRecords();
     }
+
+    print("access token: $accessToken");
+    print("refresh token: $refreshToken");
+    print("userId: $userId");
+
     return Future.value(OauthTokenEntity(
         refreshToken: refreshToken, accessToken: accessToken, userId: userId));
   }

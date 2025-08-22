@@ -25,6 +25,8 @@ import 'package:echowater/core/api/models/flask_firmware_version_data/flask_firm
 import 'package:echowater/core/services/firmware_update_log_report_service.dart';
 import 'package:path_provider/path_provider.dart';
 import 'dart:typed_data';
+import 'package:http/http.dart' as http;
+import 'package:echowater/core/domain/domain_models/flask_option.dart';
 
 /// This screen is used to upgrade the firmware of the flask
 /// It can either show a mock upgrade UI or launch the real OTA upgrade
@@ -101,7 +103,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
   // OTA Progress tracking variables
   String _updateStateText = '';
   UpdateStatus _updateStatus = UpdateStatus.idle;
-  UpdateType _updateType = UpdateType.ble;
+  UpdateType _updateType = UpdateType.mcu;
   int _cyclesCount = 0;
   bool _onScanSuccess = false;
   int _scanTryCount = 0;
@@ -111,6 +113,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
   bool _hasUpdatedMCU = false;
   List<String> imagePaths = [];
   List<String> successImages = [];
+  List<Map<String, dynamic>>? _processedUpgradeData;
 
   // Real progress tracking
   double _currentItemProgress = 0;
@@ -123,6 +126,11 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
   FlaskFirmwareVersionData? _flaskVersionData;
   bool _isLoadingVersionData = false;
   String? _versionDataError;
+
+  // MCU version tracking
+  double? _realTimeMcuVersion;
+  bool _isLoadingMcuVersion = false;
+  String? _mcuVersionError;
 
   // API client
   late final AuthorizedApiClient _apiClient;
@@ -150,27 +158,49 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     _cyclesCount = widget.cycleNumber ?? 5;
     imagePaths = widget.imageLibraryPaths ?? [];
 
+    List<Map<String, dynamic>>? processedUpgradeData = widget.allUpgradeData;
+
+    if (widget.allUpgradeData != null) {
+      // Step 1: Remove entries with null or empty mcuPath
+      final cleanedList = widget.allUpgradeData!
+          .where((item) =>
+                  item['mcuPath'] != null &&
+                  item['mcuPath'].toString().trim().isNotEmpty
+              // &&
+              // (item['mcuVersion'] == '8.2' || item['mcuVersion'] == '7.0')
+              )
+          .toList();
+
+      // Step 2: Deduplicate based on mcuPath, keep the first occurrence
+      final seenPaths = <String>{};
+      processedUpgradeData = cleanedList.where((item) {
+        final mcuPath = item['mcuPath'];
+        if (seenPaths.contains(mcuPath)) {
+          return false; // duplicate, skip
+        } else {
+          seenPaths.add(mcuPath);
+          return true; // first time, keep it
+        }
+      }).toList();
+    }
+
+    // Store processed data for use in other methods
+    _processedUpgradeData = processedUpgradeData;
+
     // Print all upgrade data in a readable format
     print("=== ALL UPGRADE DATA ===");
-    if (widget.allUpgradeData != null) {
-      print("Total responses: ${widget.allUpgradeData!.length}");
-      for (int i = 0; i < widget.allUpgradeData!.length; i++) {
-        final data = widget.allUpgradeData![i];
-        print("Response $i:");
-        print("  blePath: ${data['blePath']}");
-        print("  mcuPath: ${data['mcuPath']}");
-        print("  imagePaths: ${data['imagePaths']}");
-        print("  hasUpgrades: ${data['hasUpgrades']}");
-        print("  responseIndex: ${data['responseIndex']}");
-        print("  totalResponses: ${data['totalResponses']}");
-        print("---");
+    if (processedUpgradeData != null) {
+      print("Total responses: ${processedUpgradeData.length}");
+      for (int i = 0; i < processedUpgradeData.length; i++) {
+        final data = processedUpgradeData[i];
+        print("____ mcuPath: ${i} : ${data['mcuPath']}");
       }
     } else {
       print("allUpgradeData is null");
     }
     print(
         "========================= END OF ALL UPGRADE DATA ========================= ");
-    print("widget.allUpgradeData!.length : ${widget.allUpgradeData!.length}");
+    print("processedUpgradeData length : ${processedUpgradeData?.length ?? 0}");
     // Process all upgrade data if available
     // Initialize dynamic progress array based on allUpgradeData size
     _initializeDynamicProgressArray();
@@ -259,10 +289,13 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
       curve: Curves.easeIn,
     ));
 
-    _initializeProgress();
+    // _initializeProgress();
 
     // Fetch flask version data when screen opens
     _fetchFlaskVersionData();
+
+    // Set up MCU version listener
+    _setupMcuVersionListener();
 
     _startProgressTimer();
   }
@@ -281,17 +314,9 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
       final upgradeData = widget.allUpgradeData![i];
       print('');
       print('Response $i:');
-      print('~~  Flask: ${upgradeData['flask']}');
-      print('~  BLE Path: ${upgradeData['blePath']}');
       print('~  MCU Path: ${upgradeData['mcuPath']}');
       print('~  Image Paths: ${upgradeData['imagePaths']}');
-      print('~  Target Version: ${upgradeData['targetVersion']}');
-      print('~  Current BLE Version: ${upgradeData['currentBleVersion']}');
-      print('~  Current MCU Version: ${upgradeData['currentMcuVersion']}');
-      print('~  Has Upgrades: ${upgradeData['hasUpgrades']}');
-      print('~  Cycle Number: ${upgradeData['cycleNumber']}');
-      print('~  Response Index: ${upgradeData['responseIndex']}');
-      print('~  Total Responses: ${upgradeData['totalResponses']}');
+      print('~  MCU Version: ${upgradeData['mcuVersion']}');
     }
     print('================================================');
 
@@ -310,7 +335,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     int upgradeCount = 3; // Default to 3 if no allUpgradeData
 
     if (widget.allUpgradeData != null && widget.allUpgradeData!.isNotEmpty) {
-      upgradeCount = widget.allUpgradeData!.length;
+      upgradeCount = _processedUpgradeData!.length;
     }
 
     print('upgradeCount : $upgradeCount');
@@ -465,11 +490,20 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     // Count total items at initialization
     // For testing purposes, always include at least one of each type even if paths are not provided
     _totalItemsCount = 0;
-    _totalItemsCount += 1; // Always include BLE update for simulation
+
+    //HOVO when need to update ble Path too
+
+    // _totalItemsCount += 1; // Always include BLE update for simulation
     _totalItemsCount += 1; // Always include MCU update for simulation
-    _totalItemsCount += imagePaths.length > 0
-        ? imagePaths.length
-        : 1; // At least 1 image for simulation
+
+    ///HOVO percents need to change 2 when activate ipage Path too
+    print('~~~~~~~~~ imagePaths.length: ${imagePaths.length}');
+    final List<dynamic> imageListForCurrent =
+        (_processedUpgradeData![currentVersion]['imagePaths'] as List?) ??
+            const [];
+    _totalItemsCount += imageListForCurrent.isNotEmpty
+        ? imageListForCurrent.length
+        : 0; // At least 1 image for simulation
 
     print('📊 Progress Initialization: Total Items = $_totalItemsCount');
   }
@@ -480,7 +514,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
 
     // Ensure we always have at least 1 item to prevent division by zero
     if (_totalItemsCount == 0) {
-      _totalItemsCount = 3; // Default to 3 items (BLE + MCU + 1 Image)
+      _totalItemsCount = 1; // Default to 3 items (BLE + MCU + 1 Image)
       print('⚠️ Total items was 0, setting to default: $_totalItemsCount');
     }
 
@@ -556,6 +590,10 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     _buttonMoveAnimationController.dispose();
     WakelockPlus.disable();
     _disposeBLEUtil();
+
+    // Clean up MCU version listener
+    BleManager().onFlaskMCURead = null;
+
     super.dispose();
   }
 
@@ -572,7 +610,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
         setState(() {
           // Increment progress by 0.01 every 100ms (completes in ~10 seconds)
           if (progresses[currentVersion] < 1.0) {
-            progresses[currentVersion] += 0.1;
+            // progresses[currentVersion] += 0.1;
 
             // Ensure we don't exceed 1.0
             if (progresses[currentVersion] > 1.0) {
@@ -638,6 +676,21 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
   }
 
   void _handleNextUpdateOrResume() {
+    _hasUpdatedMCU = false;
+    _hasUpdatedBLE = false;
+
+    widget.refreshFlaskVersion?.call(true);
+
+    print(
+        '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
+    print(
+        '~~~~~~~~~ refreshFlaskVersion.bleVersion: ${widget.flask?.bleVersion} ~~~~~~~~~~ ');
+    print(
+        '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
+    _logService.sendFirmwareUpgradeLogReport(
+        mcuVersion: widget.flask?.mcuVersion,
+        bleVersion: widget.flask?.bleVersion);
+
     if (progresses[currentVersion] >= 1.0 &&
         currentVersion < progresses.length - 1) {
       // Current progress is complete, start next update
@@ -658,6 +711,9 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     bool canProceed =
         isCurrentComplete && currentVersion < progresses.length - 1;
     bool isUpgradeInProgress = _updateStatus == UpdateStatus.updating;
+    bool hasMcuVersion = (getCurrentMcuVersion() != 'Unknown' &&
+        getCurrentMcuVersion() ==
+            _processedUpgradeData![currentVersion]['mcuVersion']);
 
     return SlideTransition(
       position: _buttonSlideAnimation,
@@ -689,7 +745,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
-                onPressed: (canProceed && !isUpgradeInProgress)
+                onPressed: (canProceed && !isUpgradeInProgress && hasMcuVersion)
                     ? _handleNextUpdateOrResume
                     : null,
                 child: Text(
@@ -752,12 +808,41 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     return progressWidgets;
   }
 
+  String getMCUVersion(String mcuURL) {
+    // Handle empty or invalid URL
+    if (mcuURL.isEmpty) {
+      print('MCU URL is empty, returning empty string');
+      return "";
+    }
+
+    // Step 1: Extract filename from URL
+    final filename =
+        mcuURL.split('/').last; // e.g. MCU_OTA_OfficialVersionV5_0.bin
+    print('filename: $filename');
+    print('mcuURL: $mcuURL');
+
+    // Step 2: Extract version using RegExp
+    final versionMatch = RegExp(r'V(\d+_\d+)').firstMatch(filename);
+    if (versionMatch != null && versionMatch.group(1) != null) {
+      final versionUnderscore = versionMatch.group(1)!; // e.g. "5_0"
+      final versionDot = versionUnderscore.replaceAll('_', '.'); // "5.0"
+
+      print('Version (dot format): $versionDot');
+
+      // Optional: use or return the version
+      return versionDot;
+    } else {
+      print('Version not found in filename');
+      return "";
+    }
+  }
+
   /// Get version label for progress bar
   String _getVersionLabel(int index) {
-    if (widget.allUpgradeData != null &&
-        widget.allUpgradeData!.isNotEmpty &&
-        index < widget.allUpgradeData!.length) {
-      final upgradeData = widget.allUpgradeData![index];
+    if (_processedUpgradeData != null &&
+        _processedUpgradeData!.isNotEmpty &&
+        index < _processedUpgradeData!.length) {
+      final upgradeData = _processedUpgradeData![index];
 
       // Create descriptive label based on what upgrades are available
       List<String> upgradeTypes = [];
@@ -766,13 +851,13 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
       if (upgradeData['imagePaths'] != null &&
           upgradeData['imagePaths'].isNotEmpty) upgradeTypes.add('Images');
 
-      // Use target version if available, otherwise use index + 1
-      String versionText = upgradeData['targetVersion'] ?? "${index + 1}";
-      if (upgradeData['currentMcuVersion'] != null) {
-        versionText = upgradeData['currentMcuVersion'];
-      } else if (upgradeData['currentBleVersion'] != null) {
-        versionText = upgradeData['currentBleVersion'];
-      }
+      // Use target version if available, otherwise extract from MCU path
+      String versionText = upgradeData['mcuVersion'];
+      // if (upgradeData['currentMcuVersion'] != null) {
+      //   versionText = upgradeData['currentMcuVersion'];
+      // } else if (upgradeData['currentBleVersion'] != null) {
+      //   versionText = upgradeData['currentBleVersion'];
+      // }
 
       if (upgradeTypes.isNotEmpty) {
         return "$versionText (${upgradeTypes.join(', ')})";
@@ -780,24 +865,85 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
         return versionText;
       }
     }
-
-    // Fallback to default version names
-    switch (index) {
-      case 0:
-        return "6.0";
-      case 1:
-        return "7.0";
-      case 2:
-        return "8.0";
-      default:
-        return "Version ${index + 1}";
-    }
+    return ""; // Fallback return
   }
 
   /// Check if all progress is complete
   bool _isAllProgressComplete() {
     if (progresses.isEmpty) return false;
     return currentVersion >= progresses.length - 1 && progresses.last >= 1.0;
+  }
+
+  /// Build MCU version information widget
+  Widget _buildMcuVersionInfo() {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade900,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: Colors.grey.shade700, width: 1),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'MCU Version',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontFamily: StringConstants.golosFont,
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              IconButton(
+                onPressed:
+                    _isLoadingMcuVersion ? null : _requestMcuVersionViaBLE,
+                icon: _isLoadingMcuVersion
+                    ? SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
+                        ),
+                      )
+                    : Icon(
+                        Icons.refresh,
+                        color: Colors.white,
+                        size: 20,
+                      ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            'Current: ${getCurrentMcuVersion()}',
+            style: TextStyle(
+              color: Colors.white.withOpacity(0.8),
+              fontFamily: StringConstants.golosFont,
+              fontSize: 14,
+              fontWeight: FontWeight.w400,
+            ),
+          ),
+          if (_mcuVersionError != null) ...[
+            const SizedBox(height: 4),
+            Text(
+              'Error: $_mcuVersionError',
+              style: TextStyle(
+                color: Colors.red.shade400,
+                fontFamily: StringConstants.golosFont,
+                fontSize: 12,
+                fontWeight: FontWeight.w400,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
   }
 
   Widget _buildProgressBar(String versionLabel, int index) {
@@ -914,6 +1060,11 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                 ),
                 const SizedBox(height: 20),
               ],
+
+              // MCU Version Info Widget
+              _buildMcuVersionInfo(),
+              const SizedBox(height: 20),
+
               Container(
                 padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
                 decoration: BoxDecoration(
@@ -958,7 +1109,9 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               ),
 
               // Add Spacer to push Finish button to bottom
-              if (_isAllProgressComplete()) ...[
+              if (_isAllProgressComplete() &&
+                  getCurrentMcuVersion() ==
+                      _processedUpgradeData![currentVersion]['mcuVersion']) ...[
                 const Spacer(),
                 // Add Real OTA Upgrade button before Finish button
                 SizedBox(
@@ -968,6 +1121,13 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                     onPressed: () {
                       // Handle finish action here
                       widget.refreshFlaskVersion?.call(true);
+                      _logService.sendFirmwareUpgradeLogReport(
+                          mcuVersion: widget.flask?.mcuVersion,
+                          bleVersion: widget.flask?.bleVersion);
+                      print(
+                          '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
+                      print(
+                          '~~~~~~~~~ refreshFlaskVersion.bleVersion: ${widget.flask?.bleVersion} ~~~~~~~~~~ ');
                       Navigator.of(context).pop(); // Go back to previous screen
                     },
                     child: Text(
@@ -1023,62 +1183,87 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
   }
 
   Future<void> _startScan() async {
-    final updateTypeIcon = _updateType == UpdateType.ble
-        ? '🔷'
-        : _updateType == UpdateType.mcu
-            ? '🟠'
-            : '🟢';
-    final updateTypeName = _updateType.name.toUpperCase();
-
-    print("$updateTypeIcon STARTING DEVICE SCAN FOR $updateTypeName UPDATE");
-    _setUpdateState('Scanning for device to update $updateTypeName...');
-
-    Timer.periodic(Duration(milliseconds: 300), (timer) {
-      final tick = timer.tick;
-      print(
-          '$updateTypeIcon Device Scan - Tick: $tick, Scanning for $updateTypeName update...');
-
-      // Update state text based on scan progress
-      if (tick <= 2) {
-        _setUpdateState('Initializing Bluetooth scanner...');
-      } else if (tick <= 4) {
-        _setUpdateState('Scanning for flask device...');
-      } else if (tick <= 6) {
-        _setUpdateState('Device found! Connecting...');
-      } else {
-        _setUpdateState('Device connected. Starting $updateTypeName update...');
-      }
-
-      // Complete scan after 8 ticks (2.4 seconds)
-      if (tick >= 8) {
-        timer.cancel();
-        print(
-            "$updateTypeIcon DEVICE SCAN COMPLETED - STARTING $updateTypeName UPDATE");
-
-        // Start the appropriate update
-        if (_updateType == UpdateType.ble) {
-          unawaited(_doFirmwareUpgrade());
-        } else if (_updateType == UpdateType.mcu) {
-          unawaited(_updateMcu());
-        } else if (_updateType == UpdateType.images) {
-          unawaited(updatePics());
+    final serialId = widget.flask?.appBleModelDevice?.bleDevice.remoteId.str ??
+        widget.flask?.serialId;
+    if (widget.flask?.appBleModelDevice == null) {
+      _logService.addFirmwareUpgradeLogReport(log: {
+        'type': 'FIRMWARE_UPDATE',
+        'message': 'Firmware Update Failed',
+        'error': true,
+        'additional_info': {
+          'message':
+              'Somehow the Flask doesnt have the app ble model will be using flask serial id',
+        }
+      });
+    }
+    await bleUtil.checkBleState(context, () async {
+      _updateStatus = UpdateStatus.updating;
+      _onScanSuccess = false;
+      _setUpdateState('Firmware upgrade in progress. Please wait...');
+      await bleUtil.startScan(listener: (r) async {
+        var isFilter = false;
+        final mac = serialId?.replaceAll(':', '').toUpperCase() ?? '';
+        if (mac.isNotEmpty) {
+          print("r.device.remoteId.str: ${r.device.remoteId.str}");
+          print("r.device.advName: ${r.device.advName}");
+          final rMac = r.device.remoteId.str.replaceAll(':', '').toUpperCase();
+          if (rMac.contains(mac)) {
+            isFilter = true;
+          }
+        }
+        if (isFilter) {
+          _onScanSuccess = true;
+          await bleUtil.stopScan();
+          print('~~~~~~~~~ _updateType line: 1100: $_updateType');
+          if (_updateType == UpdateType.ble) {
+            await _doFirmwareUpgrade(r.device);
+          } else if (_updateType == UpdateType.mcu) {
+            await _updateMcuWithDevice(r.device);
+          } else if (_updateType == UpdateType.images) {
+            await _updatePicsWithDevice(r.device);
+          }
+        }
+      });
+      if (!_onScanSuccess) {
+        if (_scanTryCount <= 0) {
+          _cyclesCount = _cyclesCount - 1;
+          if (_cyclesCount > 0) {
+            await _startScan();
+          } else {
+            _logService.addFirmwareUpgradeLogReport(log: {
+              'type': 'FIRMWARE_UPDATE',
+              'message': 'Firmware Update Failed',
+              'error': true,
+              'additional_info': {
+                'message': "Somehow the Flask's device was not found at all",
+              }
+            });
+            showToast(context, 'Device not found that needs the update');
+            await _onFullFirmwareUpdateCompleted(isSuccess: false);
+          }
+        } else {
+          _scanTryCount = _scanTryCount - 1;
+          await _startScan();
         }
       }
     });
-
-    return;
   }
 
-  Future _updateMcu() async {
-    print('🟠 MCU FIRMWARE UPGRADE STARTED');
-    _setUpdateState('Starting MCU firmware upgrade...');
+  Future<Uint8List?> _downloadFileAsBytes(String fileUrl) async {
+    try {
+      final response = await http.get(Uri.parse(fileUrl));
 
-    // Reset progress for this specific update
-    _currentItemProgress = 0.0;
-    _isCurrentItemComplete = false;
+      if (response.statusCode == 200) {
+        // The file is successfully fetched as bytes
+        return response.bodyBytes;
+      } else {
+        print('Failed to download file: ${response.statusCode}');
+      }
+    } catch (e) {
+      print('Error downloading file: $e');
+    }
 
-    // Start device scanning and connection
-    await _startScanAndUpgrade();
+    return null;
   }
 
   /// Real MCU update method with device parameter
@@ -1098,11 +1283,15 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
 
     // Use allUpgradeData for current upgrade
     String? mcuUpgradePath;
-    if (widget.allUpgradeData != null &&
-        widget.allUpgradeData!.isNotEmpty &&
-        currentVersion < widget.allUpgradeData!.length) {
-      mcuUpgradePath = widget.allUpgradeData![currentVersion]['mcuPath'];
+    if (_processedUpgradeData != null &&
+        _processedUpgradeData!.isNotEmpty &&
+        currentVersion < _processedUpgradeData!.length) {
+      print("currentVersion: $currentVersion");
+      print(
+          "mcuUpgradePath: ${_processedUpgradeData![currentVersion]['mcuPath']}");
+      mcuUpgradePath = _processedUpgradeData![currentVersion]['mcuPath'];
     } else {
+      print("mcuUpgradePath: ${widget.mcuPath}");
       mcuUpgradePath = widget.mcuPath;
     }
 
@@ -1114,8 +1303,21 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
 
     await bleUtil.connect(context, device, (suc) async {
       if (suc) {
-        final file = File(mcuUpgradePath!);
-        final upgradeFile = await file.readAsBytes();
+        print("mcuUpgradePath: $mcuUpgradePath");
+        //  final file = File(mcuUpgradePath!);
+
+        final upgradeFile = await _downloadFileAsBytes(mcuUpgradePath!);
+
+        if (upgradeFile != null) {
+          print(
+              'File downloaded successfully. Byte length: ${upgradeFile.length}');
+          // You can now use the bytes (e.g. save to file, parse, etc.)
+        } else {
+          print('Failed to download the file.');
+          await _onMcuUpdateFailed();
+        }
+
+        // final upgradeFile = await file.readAsBytes();
 
         final startMcu = await bleUtil.writeWait(
             Uint8List.fromList(
@@ -1124,7 +1326,9 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
 
         Util.v('startMcu:${Util.getHexString(startMcu)}');
         await Future.delayed(const Duration(seconds: 1));
-        final blockCount = (upgradeFile.length.toDouble() / blockSize).ceil();
+        final blockCount = (upgradeFile!.length.toDouble() / blockSize).ceil();
+
+        print("blockCount: $blockCount");
 
         _logService.addFirmwareUpgradeLogReport(log: {
           'type': 'FIRMWARE_UPDATE',
@@ -1148,12 +1352,24 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               1);
           final percent =
               (((i + 1).toDouble() / blockCount.toDouble()) * 100).toInt();
+          print("percent: $percent");
+          // progresses[currentVersion] =
+          //     ((i + 1).toDouble() / blockCount.toDouble());
+
+          print("progress current version: ${progresses[currentVersion]}");
+
           final successData = bleUtil.getBlockCmd(
               Uint8List.fromList([0x01]),
               true,
               Uint8List.fromList([0x00, 0x00, 0x00, 0x01]),
               blockCount,
               i + 1);
+
+          // print("i: $i");
+          // print("data: ${Util.getHexString(data)}");
+          // print("successData: ${Util.getHexString(successData)}");
+          // print("areEqual: ${Util.areUint8ListsEqual(data, successData)}");
+
           if (Util.areUint8ListsEqual(data, successData)) {
             if (i + 1 == blockCount) {
               _logService.addFirmwareUpgradeLogReport(log: {
@@ -1214,24 +1430,6 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
         'device': device.advName,
       }
     });
-
-    // Use allUpgradeData for current upgrade
-    List<String> imageUpgradePaths = [];
-    if (widget.allUpgradeData != null &&
-        widget.allUpgradeData!.isNotEmpty &&
-        currentVersion < widget.allUpgradeData!.length) {
-      final upgradeData = widget.allUpgradeData![currentVersion];
-      imageUpgradePaths = List<String>.from(upgradeData['imagePaths'] ?? []);
-    } else {
-      imageUpgradePaths = imagePaths;
-    }
-
-    if (imageUpgradePaths.isEmpty) {
-      print('❌ No image upgrade paths available');
-      await _onImageLibraryUpdateFailed();
-      return;
-    }
-
     await bleUtil.connect(context, device, (suc) async {
       if (suc) {
         var imgSuccessCount = 0;
@@ -1242,16 +1440,17 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
           'message': 'Image update started and device was found',
           'error': false
         });
-
-        for (var k = 0; k < imageUpgradePaths.length; k++) {
-          final file = File(imageUpgradePaths[k]);
-          final upgradeFile = await file.readAsBytes();
+        for (var k = 0; k < imagePaths.length; k++) {
+          print('~~~~~~~~~ imagePaths[k]: ${imagePaths[k]}');
+          final upgradeFile = await _downloadFileAsBytes(imagePaths[k]);
           final startPics = await bleUtil.writeWait(
               Uint8List.fromList(
                   [0x55, 0xAA, 0x46, 0x4D, 0x44, 0x49, 0x41, 0x50]),
               3);
           Util.v('startPics:${Util.getHexString(startPics)}');
-          final blockCount = (upgradeFile.length.toDouble() / blockSize).ceil();
+          final blockCount =
+              (upgradeFile!.length.toDouble() / blockSize).ceil();
+          print('~~~~~~~~~ blockCount image update: $blockCount');
 
           for (var i = 0; i < blockCount; i++) {
             _logService.addFirmwareUpgradeLogReport(log: {
@@ -1261,7 +1460,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               'additional_info': {
                 'image number': k,
                 'block count': blockCount,
-                'current block': i
+                'current blocl': i
               }
             });
 
@@ -1272,35 +1471,33 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                     block,
                     false,
                     Util.hex4ToUint8List(
-                        path.basenameWithoutExtension(imageUpgradePaths[k])),
+                        path.basenameWithoutExtension(imagePaths[k])),
                     blockCount,
                     i + 1),
                 1);
             final percent =
                 (((i + 1).toDouble() / blockCount.toDouble()) * 100).toInt();
+            _setUpdateState('Image firmware upload: $percent%');
 
             final successData = bleUtil.getBlockCmd(
                 Uint8List.fromList([0x01]),
                 false,
                 Util.hex4ToUint8List(
-                    path.basenameWithoutExtension(imageUpgradePaths[k])),
+                    path.basenameWithoutExtension(imagePaths[k])),
                 blockCount,
                 i + 1);
             if (Util.areUint8ListsEqual(data, successData)) {
-              _setUpdateState(
-                  'Image ${k + 1}/${imageUpgradePaths.length}: $percent%');
               _calculateProgressAndShow(percentage: percent);
               if (i + 1 == blockCount) {
                 imgSuccessCount = imgSuccessCount + 1;
-                successImages.add(imageUpgradePaths[k]);
+                successImages.add(imagePaths[k]);
               }
             } else {
               break;
             }
           }
         }
-
-        if (imgSuccessCount == imageUpgradePaths.length) {
+        if (imgSuccessCount == imagePaths.length) {
           _logService.addFirmwareUpgradeLogReport(log: {
             'type': 'FIRMWARE_UPDATE',
             'message': 'All Image upgrade success',
@@ -1309,7 +1506,6 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               'success images': successImages,
             }
           });
-          _setUpdateState('Image library update completed!');
           unawaited(_onImageUpdateCompleted());
           return;
         } else {
@@ -1321,7 +1517,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               'success images': successImages,
             }
           });
-          imageUpgradePaths.removeWhere((item) => successImages.contains(item));
+          imagePaths.removeWhere((item) => successImages.contains(item));
           unawaited(_onImageLibraryUpdateFailed());
         }
       } else {
@@ -1331,7 +1527,6 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
           'error': true,
           'additional_info': {
             'message': 'Connecting to device not successful',
-            'device advertising address': device.advName,
           }
         });
         unawaited(_onImageLibraryUpdateFailed());
@@ -1339,7 +1534,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     });
   }
 
-  Future _doFirmwareUpgrade() async {
+  Future _doFirmwareUpgrade(BluetoothDevice device) async {
     print('🔷 BLE FIRMWARE UPGRADE STARTED');
     _setUpdateState('Starting BLE firmware upgrade...');
 
@@ -1474,6 +1669,8 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
 
           await bleUtil.stopScan();
 
+          print('~~~~~~~~~ _updateType line: 1554: $_updateType');
+
           // Start the appropriate upgrade based on update type
           if (_updateType == UpdateType.ble) {
             await _doFirmwareUpgradeWithDevice(device);
@@ -1536,9 +1733,6 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     print('   • Total Items to Update: $_totalItemsCount');
     print('🚀 ===============================================');
 
-    _updateStatus = UpdateStatus.updating;
-    isUpdating = true;
-
     // Reset progress for current version
     _initializeProgress();
 
@@ -1546,7 +1740,39 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
       progresses[currentVersion] = 0.0;
     });
 
-    _initiateBLEUpgrade();
+    _logService.addFirmwareUpgradeLogReport(log: {
+      'type': 'FIRMWARE_UPDATE',
+      'error': false,
+      'message': 'Upgrade button clicked',
+      'additional_info': {
+        'initial_start_set': {
+          'ble_path': widget.blePath,
+          'mcu_path': widget.mcuPath,
+          'images': "No Images",
+        }
+      }
+    });
+
+    if (_updateStatus == UpdateStatus.updating) {
+      return;
+    }
+    //HOVO if need ble update change update type
+    _updateType = UpdateType.mcu;
+
+    _hasBaseDisconnected = true;
+    await BleManager().disconnect(widget.flask!);
+    BleManager().updateScanResultListener(isPause: true);
+
+    widget.refreshFlaskVersion?.call(true);
+    _logService.sendFirmwareUpgradeLogReport(
+        mcuVersion: widget.flask?.mcuVersion,
+        bleVersion: widget.flask?.bleVersion);
+    print(
+        '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
+    print(
+        '~~~~~~~~~ refreshFlaskVersion.bleVersion: ${widget.flask?.bleVersion} ~~~~~~~~~~ ');
+
+    _initiateMCUUpdate();
   }
 
   void _initiateBLEUpgrade() {
@@ -1595,6 +1821,11 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
       return;
     }
 
+    if (widget.mcuPath == null) {
+      _initiateImageUpdates();
+      return;
+    }
+
     print('🟠 ===============================================');
     print('🟠 *** MCU UPDATE STARTED *** 🟠');
     print(
@@ -1613,12 +1844,14 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
   Future<void> _onMCUUpdated() async {
     _hasUpdatedMCU = true;
     print('✅ MCU UPDATE COMPLETED - MOVING TO IMAGE UPDATES');
-    await Future.delayed(
-        Duration(milliseconds: 500)); // Brief pause between updates
+
+    await bleUtil.disconnect();
+    await Future.delayed(const Duration(seconds: 2));
     _initiateImageUpdates();
   }
 
   Future<void> _onMcuUpdateFailed() async {
+    await bleUtil.disconnect();
     if (_updateType == UpdateType.mcu) {
       _cyclesCount = _cyclesCount - 1;
       if (_cyclesCount > 0) {
@@ -1639,6 +1872,14 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     print(
         '🟢 Initiating Image Updates - Images: ${imagePaths.length > 0 ? imagePaths.length : "0 (using simulation)"}');
     print('🟢 ===============================================');
+    imagePaths = _processedUpgradeData![currentVersion]['imagePaths'];
+    print('imagePaths: $imagePaths');
+    if (imagePaths.isEmpty) {
+      BleManager().updateFirmwareLog(widget.flask!, 'image');
+      BleManager().updateFirmwareLog(widget.flask!, 'mcu');
+      _onFullFirmwareUpdateCompleted(isSuccess: true);
+      return;
+    }
 
     // Show user notification for image update start
     _setUpdateState('Starting image library update...');
@@ -1651,13 +1892,17 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
 
   Future<void> _onImageUpdateCompleted() async {
     print('✅ IMAGE UPDATES COMPLETED - FIRMWARE UPGRADE FINISHED');
+
+    BleManager().updateFirmwareLog(widget.flask!, 'image');
+    BleManager().updateFirmwareLog(widget.flask!, 'mcu');
     _updateAllState();
-    await Future.delayed(
-        Duration(milliseconds: 500)); // Brief pause before completion
+    await bleUtil.disconnect();
+    await Future.delayed(const Duration(seconds: 2));
     await _onFullFirmwareUpdateCompleted(isSuccess: true);
   }
 
   Future<void> _onImageLibraryUpdateFailed() async {
+    await bleUtil.disconnect();
     if (_updateType == UpdateType.images) {
       _cyclesCount = _cyclesCount - 1;
       if (_cyclesCount > 0) {
@@ -1672,74 +1917,125 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
   }
 
   Future<void> _onFullFirmwareUpdateCompleted({required bool isSuccess}) async {
-    final versionName = currentVersion == 0
-        ? "6.0"
-        : currentVersion == 1
-            ? "7.0"
-            : "8.0";
-    final statusIcon = isSuccess ? '🎉' : '❌';
-    final statusText = isSuccess ? 'SUCCESS' : 'FAILED';
-
-    print('$statusIcon ===============================================');
-    print('$statusIcon FIRMWARE UPGRADE $statusText FOR VERSION $versionName');
-    print('$statusIcon ===============================================');
-    print('📊 Upgrade Summary:');
-    print(
-        '   • BLE Update: ${_hasUpdatedBLE ? "✅ Completed" : "❌ Not completed"}');
-    print(
-        '   • MCU Update: ${_hasUpdatedMCU ? "✅ Completed" : "❌ Not completed"}');
-    print(
-        '   • Image Updates: ${isSuccess ? "✅ Completed" : "❌ Not completed"}');
-    print(
-        '   • Overall Progress: ${(_overallProgress * 100).toStringAsFixed(1)}%');
-    print('$statusIcon ===============================================');
-
+    _logService.addFirmwareUpgradeLogReport(log: {
+      'type': 'FIRMWARE_UPDATE',
+      'message': 'Full Firmware Update completed',
+      'error': !isSuccess,
+      'additional_info': {
+        'update status': _updateStatus.name,
+      }
+    });
     final message =
         isSuccess ? 'Firmware successfully updated.' : 'Firmware update failed';
-
-    if (mounted) {
-      Utilities.showSnackBar(context, message,
-          isSuccess ? SnackbarStyle.success : SnackbarStyle.error);
-    }
-
+    showToast(context, message,
+        style: isSuccess ? SnackbarStyle.success : SnackbarStyle.error);
     _setUpdateState(message);
     _updateStatus =
         isSuccess ? UpdateStatus.updateSuccess : UpdateStatus.updateFailed;
-
-    // Mark current version as complete
-    setState(() {
-      progresses[currentVersion] = 1.0;
-      isUpdating = false;
-    });
-
-    // Reset for next version if successful and not the last version
-    if (isSuccess && currentVersion < progresses.length - 1) {
-      print('🔄 PREPARING FOR NEXT VERSION UPDATE...');
-      // Reset update state for next version
-      _hasUpdatedBLE = false;
-      _hasUpdatedMCU = false;
-      _updateStatus = UpdateStatus.idle;
-      _initializeProgress();
-    } else if (isSuccess && currentVersion >= progresses.length - 1) {
-      print('🏁 ALL FIRMWARE UPDATES COMPLETED SUCCESSFULLY!');
-    }
-
     _updateAllState();
+    await bleUtil.disconnect();
     _disposeBLEUtil();
+    if (_hasBaseDisconnected) {
+      BleManager().updateScanResultListener(isPause: false);
+      _hasBaseDisconnected = false;
+      await BleManager().connectFlask(device: widget.flask!, connectTime: 5);
+    }
   }
 
   void _disposeBLEUtil() {
     // Properly dispose BLE utility
+    bleUtil.dispose();
+  }
+
+  /// Set up MCU version listener for real-time updates
+  void _setupMcuVersionListener() {
+    BleManager().onFlaskMCURead = (device, mcuVersion) {
+      if (device.identifier == widget.flask?.serialId ||
+          device.identifier == widget.flask?.appBleModelDevice?.identifier) {
+        setState(() {
+          _realTimeMcuVersion = mcuVersion;
+          _isLoadingMcuVersion = false;
+          _mcuVersionError = null; // Clear any previous errors on success
+        });
+        print('📊 Real-time MCU Version received: $mcuVersion');
+      }
+    };
+  }
+
+  /// Get current MCU version from multiple sources
+  String getCurrentMcuVersion() {
+    // Priority order: Real-time BLE > Widget Flask > API Version Data
+    if (_realTimeMcuVersion != null) {
+      return _realTimeMcuVersion!.toString();
+    }
+
+    if (widget.flask?.mcuVersion != null &&
+        widget.flask!.mcuVersion!.isNotEmpty) {
+      return widget.flask!.mcuVersion!;
+    }
+
+    if (_flaskVersionData?.currentVerion != null) {
+      return _flaskVersionData!.currentVerion!;
+    }
+
+    return 'Unknown';
+  }
+
+  /// Request fresh MCU version via BLE
+  Future<void> _requestMcuVersionViaBLE() async {
+    if (widget.flask?.appBleModelDevice == null) {
+      print('⚠️ No BLE device available to request MCU version');
+      setState(() {
+        _mcuVersionError = 'No BLE device available';
+        _isLoadingMcuVersion = false;
+      });
+      return;
+    }
+
+    setState(() {
+      _isLoadingMcuVersion = true;
+      _mcuVersionError = null; // Clear previous errors
+    });
+
+    print('📡 Requesting MCU version via BLE...');
+
     try {
-      bleUtil.dispose();
-      print('🔌 BLE utility disposed successfully');
+      // Send a wake up command to trigger device to send its status including MCU version
+      final response = await BleManager().sendData(
+        widget.flask!,
+        FlaskCommand.wakeUp,
+        FlaskCommand.wakeUp.commandData.addingCRC(),
+      );
+
+      if (response.isNotEmpty) {
+        print('❌ Failed to request MCU version: $response');
+        setState(() {
+          _mcuVersionError = 'Failed to request: $response';
+          _isLoadingMcuVersion = false;
+        });
+      } else {
+        // Success response will come through the onFlaskMCURead callback
+        // Set a timeout in case no response comes
+        Future.delayed(const Duration(seconds: 5), () {
+          if (_isLoadingMcuVersion) {
+            setState(() {
+              _mcuVersionError = 'Request timeout - no response received';
+              _isLoadingMcuVersion = false;
+            });
+          }
+        });
+      }
     } catch (e) {
-      print('⚠️ Error disposing BLE utility: $e');
+      print('❌ Error requesting MCU version: $e');
+      setState(() {
+        _mcuVersionError = 'Error: ${e.toString()}';
+        _isLoadingMcuVersion = false;
+      });
     }
   }
 
-  // Add unawaited helper if not imported
-  void unawaited(Future<void> future) {
-    // Intentionally not awaiting
-  }
+  // // Add unawaited helper if not imported
+  // void unawaited(Future<void> future) {
+  //   // Intentionally not awaiting
+  // }
 }

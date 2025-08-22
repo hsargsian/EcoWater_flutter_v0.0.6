@@ -119,6 +119,8 @@ class BleManager {
   void startScan({List<String> withRemoteIds = const [], int? connectTime}) {
     final alreadyConnectedDevices = FlutterBluePlus.connectedDevices;
     for (final item in alreadyConnectedDevices) {
+      print("item: ${item.remoteId.toString()}");
+      print("item advname: ${item.advName}");
       final newAppBleModel = AppBleModel(
           identifier: item.remoteId.toString(),
           bleDevice: item,
@@ -157,6 +159,11 @@ class BleManager {
 
   Future<void> connect(
       {required AppBleModel device, required bool isAlreadyConnected}) async {
+    print("connect: ${device.identifier}");
+    print("connectedDevices: ${connectedDevices.keys}");
+    print("isAlreadyConnected: $isAlreadyConnected");
+    print("================================================");
+
     if (!connectedDevices.containsKey(device.identifier)) {
       final item = SingleBLEDeviceManager(device, _onDeviceStateChanged);
       connectedDevices[device.identifier] = item;

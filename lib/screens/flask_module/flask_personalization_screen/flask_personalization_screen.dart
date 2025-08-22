@@ -91,7 +91,7 @@ class _FlaskPersonalizationScreenState
     final manager = BleManager().getManager(widget.flask);
     if (manager != null) {
       _bloc.add(FetchFlaskFirmwareVersionEvent(
-          mcuVersion: null, bleVersion: manager.bleVersion));
+          mcuVersion: manager.mcuVersion, bleVersion: manager.bleVersion));
     }
   }
 
@@ -305,7 +305,7 @@ class _FlaskPersonalizationScreenState
             _canShowUpgradeButton = !didUpgradeFirmware;
             _updateFlask(navigatesBack: false);
           },
-          showMockUI: true, // Set to false for real OTA upgrade
+          showMockUI: false, // Set to false for real OTA upgrade
         ),
       );
 
@@ -357,7 +357,7 @@ class _FlaskPersonalizationScreenState
             _canShowUpgradeButton = !didUpgradeFirmware;
             _updateFlask(navigatesBack: false);
           },
-          showMockUI: true, // Set to false for real OTA upgrade
+          showMockUI: false, // Set to false for real OTA upgrade
         ),
       );
     }
@@ -899,7 +899,7 @@ class _FlaskPersonalizationScreenState
 
         if (_bloc.firmwareInfo!.hasUpgrade) {
           print('✅ Showing firmware upgrade dialog');
-          _showFirmwareUpgradeDialog();
+          // _showFirmwareUpgradeDialog();
         } else {
           print('❌ No upgrades available - dialog not shown');
         }

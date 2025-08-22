@@ -125,24 +125,67 @@ class FlaskPersonalizationBloc
   // Check if we have complete firmware data
   bool get hasCompleteFirmwareData => firmwareInfoRawResponse != null;
 
+  String? mcuVersion = null;
+
+  Future<String?> _getMCUVersion(String mcuURL) async {
+    // Handle empty or invalid URL
+    if (mcuURL.isEmpty) {
+      print('MCU URL is empty, returning null');
+      return null;
+    }
+
+    // Step 1: Extract filename from URL
+    final filename = mcuURL.split('/').last; // MCU_OTA_OfficialVersionV5_0.bin
+    print('filename: $filename');
+    print('mcuURL: $mcuURL');
+
+    // Step 2: Extract version using RegExp
+    final versionMatch = RegExp(r'V(\d+_\d+)').firstMatch(filename);
+    if (versionMatch != null && versionMatch.group(1) != null) {
+      final versionUnderscore = versionMatch.group(1)!; // e.g. "5_0"
+      final versionDot = versionUnderscore.replaceAll('_', '.'); // "5.0"
+
+      print('Version (dot format): $versionDot');
+
+      // Example: Replace "5.0" in a string
+      String originalText = "Current version is 5.0";
+      String updatedText =
+          originalText.replaceAll(RegExp(r'\b\d+\.\d+\b'), versionDot);
+
+      print('Updated text: $updatedText');
+      return versionDot;
+    } else {
+      print('Version not found in filename');
+      return null;
+    }
+  }
+
+  /// Synchronous version extraction for getAllUpgradeData
+  String _extractMcuVersionSync(String mcuURL) {
+    if (mcuURL.isEmpty) return "";
+
+    final filename = mcuURL.split('/').last;
+    final versionMatch = RegExp(r'V(\d+_\d+)').firstMatch(filename);
+    if (versionMatch != null && versionMatch.group(1) != null) {
+      final versionUnderscore = versionMatch.group(1)!;
+      return versionUnderscore.replaceAll('_', '.');
+    }
+    return "";
+  }
+
   Future<void> _onFetchFlaskFirmwareVersionEvent(
     FetchFlaskFirmwareVersionEvent event,
     Emitter<FlaskPersonalizationState> emit,
   ) async {
     print(
-        'onFetchFlaskFirmwareVersionEvent - Attempt ${_firmwareRetryCount + 1}');
-    print('mcuVersion: ${event.mcuVersion}');
-    print('bleVersion: ${event.bleVersion}');
+        ' event onFetchFlaskFirmwareVersionEvent - Attempt ${_firmwareRetryCount + 1}');
+    print(' event mcuVersion: ${event.mcuVersion}');
+    print(' event bleVersion: ${event.bleVersion}');
 
     final response = await _flaskRepository.fetchFlaskVersion(
         flaskId: flask.serialId,
-        mcuVersion: event.mcuVersion,
+        mcuVersion: double.tryParse(mcuVersion ?? ''),
         bleVersion: event.bleVersion);
-
-    print('flask.bleVersion: ${flask.bleVersion}');
-    print('flask.mcuVersion: ${flask.mcuVersion}');
-    print('event.mcuVersion: ${event.mcuVersion}');
-    print('event.bleVersion: ${event.bleVersion}');
 
     // Method 1: Simple toString (shows Result wrapper)
     print('=== Response Object ===');
@@ -150,7 +193,7 @@ class FlaskPersonalizationBloc
     print('Response type: ${response.runtimeType}');
 
     // Method 2: Extract actual data using when()
-    response.when(success: (data) {
+    response.when(success: (data) async {
       print('=== SUCCESS Response Data ===');
       print('Success data type: ${data.runtimeType}');
       print('Success data toString: ${data.toString()}');
@@ -161,6 +204,8 @@ class FlaskPersonalizationBloc
       // print('MCU Version: ${data.mcuVersion}');
       print('Image Paths: ${data.imagePaths}');
       print('Mandatory Version Check: ${data.mandatoryVersionCheck}');
+      mcuVersion = await _getMCUVersion(data.mcuPath ?? '');
+      print('mcuVersion: $mcuVersion');
 
       // Check if the parsed object has mcu_version
       final parsedJson = data.toJson();
@@ -222,7 +267,11 @@ class FlaskPersonalizationBloc
       _updateFlaskVersionsIfNeeded(event, emit);
 
       // Check if firmware info is complete
-      bool isComplete = _isFirmwareInfoComplete(firmwareInfo!);
+      print('~~~~~~~~~~~~~~  mcuPath: $mcuPath');
+      print('~~~~~~~~~~~~~~  imagePaths: $imagePaths');
+
+      bool isComplete = (_mcuPath == null);
+
       print('Firmware info complete: $isComplete');
 
       if (isComplete || _firmwareRetryCount >= _maxRetryAttempts) {
@@ -230,8 +279,10 @@ class FlaskPersonalizationBloc
         _firmwareRetryTimer?.cancel();
         _firmwareRetryCount = 0;
         emit(FlaskFirmwareInfoFetchedState());
+        return;
       } else {
         // Schedule retry
+        print('Scheduling retry line 235');
         _scheduleRetry(event, emit);
       }
     }, error: (error) {
@@ -350,10 +401,13 @@ class FlaskPersonalizationBloc
       newBleVersion = manager.bleVersion ?? event.bleVersion;
       print('Fallback BLE Version from manager: $newBleVersion');
     }
+    newMcuVersion = mcuVersion;
 
     if (newMcuVersion == null && manager != null) {
       newMcuVersion =
           manager.mcuVersion?.toString() ?? event.mcuVersion?.toString();
+      newMcuVersion =
+          await _getMCUVersion(manager.mcuVersion?.toString() ?? '');
       print(
           'Fallback MCU Version from manager: $newMcuVersion, event.mcuVersion: ${event.mcuVersion}, manager.mcuVersion: ${manager.mcuVersion}');
     }
@@ -374,7 +428,7 @@ class FlaskPersonalizationBloc
     print('==================================');
 
     // Check if we have different version info and need to update
-    bool needsUpdate = false;
+    bool needsUpdate = true;
 
     if (newBleVersion != flask.bleVersion) {
       print('BLE version changed: ${flask.bleVersion} -> $newBleVersion');
@@ -402,7 +456,7 @@ class FlaskPersonalizationBloc
           volume: flaskVolume,
           wakeUpFromSleepTime: wakeUpFromSleepTime,
           bleVersion: newBleVersion,
-          mcuVersion: newMcuVersion,
+          mcuVersion: mcuVersion,
         );
 
         updateResponse.when(success: (updatedFlask) {
@@ -425,7 +479,7 @@ class FlaskPersonalizationBloc
 
               // Option 1: Create new event with updated versions
               final updatedEvent = FetchFlaskFirmwareVersionEvent(
-                mcuVersion: manager.mcuVersion,
+                mcuVersion: double.tryParse(mcuVersion ?? ''),
                 bleVersion: flask.bleVersion,
               );
               print('Updated event.mcuVersion: ${updatedEvent.mcuVersion}');
@@ -658,7 +712,7 @@ class FlaskPersonalizationBloc
         'blePath': response.blePath,
         'mcuPath': response.mcuPath,
         'imagePaths': response.imagePaths ?? [],
-        // Version information
+        "mcuVersion": _extractMcuVersionSync(response.mcuPath ?? ''),
         'targetVersion': response.currentVersion, // Version we're upgrading TO
         'currentBleVersion': flask?.bleVersion, // Current BLE version on flask
         'currentMcuVersion': flask?.mcuVersion, // Current MCU version on flask
@@ -669,6 +723,7 @@ class FlaskPersonalizationBloc
         'responseIndex': i,
         'totalResponses': _firmwareResponses.length,
       });
+      print('All upgrade data mcu path ${i} : ${response.mcuPath}');
     }
 
     return allUpgradeData;

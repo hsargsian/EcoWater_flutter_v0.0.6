@@ -125,6 +125,8 @@ class Util {
     }
     for (var i = 0; i < list1.length; i++) {
       if (list1[i] != list2[i]) {
+        print("list1[i]: ${list1[i]}");
+        print("list2[i]: ${list2[i]}");
         return false;
       }
     }
