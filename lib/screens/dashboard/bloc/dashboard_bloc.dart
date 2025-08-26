@@ -140,8 +140,7 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       return;
     }
     final response = await _flaskRepository.startFlaskCycle(
-        id: bleDevicesWrapper.flasks[itemIndex].id,
-        ppmGenerated: event.ppmGenerated);
+        id: bleDevicesWrapper.flasks[itemIndex].id, ppmGenerated: null);
     response.when(success: (success) {
       Refresher().refreshHomeScreen?.call();
       Refresher().refreshGoalScreen?.call();
@@ -149,10 +148,13 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final manager =
           BleManager().getManager(bleDevicesWrapper.flasks[itemIndex]);
       if (manager != null) {
+        // manager.requestBatchData(BleManager().serviceId);
         print('~~~~~~~~~~~~ Clear Data Log ~~~~~~~~~~~~~');
         BleManager().clearDataLog(manager);
         print('~~~~~~~~~~~~ Send Batch Logs to Backend ~~~~~~~~~~~~~');
         manager.sendBatchLogsToBackend();
+
+        BleManager().requestBatchData(manager);
       }
       emit(MessageState('MyFlaskListingScreen_flaskCycleStarted'.localized,
           SnackbarStyle.success));
@@ -164,8 +166,10 @@ class DashboardBloc extends Bloc<DashboardEvent, DashboardState> {
       final manager =
           BleManager().getManager(bleDevicesWrapper.flasks[itemIndex]);
       if (manager != null) {
+        print('~~~~~~~~~~~~ Clear Data Log ~~~~~~~~~~~~~');
         BleManager().clearDataLog(manager);
-        manager.sendBatchLogsToBackend();
+        print('~~~~~~~~~~~~ Send Batch Logs to Backend ~~~~~~~~~~~~~');
+        BleManager().requestBatchData(manager);
       }
       emit(MessageState(error.toMessage(), SnackbarStyle.error));
     });
