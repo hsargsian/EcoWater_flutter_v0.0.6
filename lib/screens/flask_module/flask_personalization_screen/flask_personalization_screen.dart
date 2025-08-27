@@ -90,8 +90,19 @@ class _FlaskPersonalizationScreenState
     print('fetchFlaskFirmwareVersion');
     final manager = BleManager().getManager(widget.flask);
     if (manager != null) {
+      print('🔍 BLE Manager found for flask: ${widget.flask.name}');
+      print('📱 BLE Version: ${manager.bleVersion}');
+      print('🔧 MCU Version: ${manager.mcuVersion}');
+      print('🆔 Flask ID: ${widget.flask.id}');
+
       _bloc.add(FetchFlaskFirmwareVersionEvent(
           mcuVersion: manager.mcuVersion, bleVersion: manager.bleVersion));
+    } else {
+      print('❌ No BLE Manager found for flask: ${widget.flask.name}');
+      print('🆔 Flask ID: ${widget.flask.id}');
+      // Try with null versions to see if API accepts them
+      _bloc.add(
+          FetchFlaskFirmwareVersionEvent(mcuVersion: null, bleVersion: null));
     }
   }
 
@@ -193,7 +204,8 @@ class _FlaskPersonalizationScreenState
                         _ledScreenModeView(),
                       if (_bloc.personalizationSettings.hasSleepWakeSettings)
                         _wakeFromSleepControlView(),
-                      if (widget.flask.hasUpgradeVersion(_bloc.firmwareInfo) &&
+                      if (_bloc.firmwareInfo != null &&
+                          widget.flask.hasUpgradeVersion(_bloc.firmwareInfo) &&
                           _canShowUpgradeButton)
                         Padding(
                           padding: const EdgeInsets.symmetric(
@@ -209,7 +221,7 @@ class _FlaskPersonalizationScreenState
                                 }),
                           ),
                         ),
-                      if (FlavorConfig.isNotProduction() || kDebugMode)
+                      if (FlavorConfig.isNotProduction())
                         Padding(
                           padding: const EdgeInsets.symmetric(
                               vertical: 10, horizontal: 20),
@@ -264,7 +276,7 @@ class _FlaskPersonalizationScreenState
         Utilities.showSnackBar(
           context,
           'No firmware upgrades available at this time',
-          SnackbarStyle.normal,
+          SnackbarStyle.error, // Changed to error style for red/pink color
         );
       }
     }

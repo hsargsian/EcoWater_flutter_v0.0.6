@@ -83,6 +83,7 @@ class FlaskPersonalizationBloc
   // Getters for all firmware responses
   List<FlaskFirmwareVersionEntity> get allFirmwareResponses =>
       List.unmodifiable(_firmwareResponses);
+
   int get firmwareResponseCount => _firmwareResponses.length;
 
   // Get all BLE paths from all responses
@@ -177,165 +178,101 @@ class FlaskPersonalizationBloc
     FetchFlaskFirmwareVersionEvent event,
     Emitter<FlaskPersonalizationState> emit,
   ) async {
+    // Reset upgrade flag when starting fresh firmware check
+    flask.resetUpgradeFlag();
+
     print(
         ' event onFetchFlaskFirmwareVersionEvent - Attempt ${_firmwareRetryCount + 1}');
-    print(' event mcuVersion: ${event.mcuVersion}');
-    print(' event bleVersion: ${event.bleVersion}');
+    print('_____________________ event mcuVersion: ${event.mcuVersion}');
+    print('_____________________ event bleVersion: ${event.bleVersion}');
+    print('_____________________ event mcuVersion: ${mcuVersion}');
 
-    final response = await _flaskRepository.fetchFlaskVersion(
-        flaskId: flask.serialId,
-        mcuVersion: double.tryParse(mcuVersion ?? ''),
-        bleVersion: event.bleVersion);
+    if (mcuVersion == '-1') {
+      return;
+    }
 
-    // Method 1: Simple toString (shows Result wrapper)
-    print('=== Response Object ===');
-    print('Response toString: ${response.toString()}');
-    print('Response type: ${response.runtimeType}');
+    try {
+      final response = await _flaskRepository.fetchFlaskVersion(
+        flaskId: flask.id,
+        mcuVersion: event.mcuVersion,
+        bleVersion: event.bleVersion,
+      );
 
-    // Method 2: Extract actual data using when()
-    response.when(success: (data) async {
-      print('=== SUCCESS Response Data ===');
-      print('Success data type: ${data.runtimeType}');
-      print('Success data toString: ${data.toString()}');
-      print('Success data JSON: ${data.toJson()}');
-      print('Current Version: ${data.currentVersion}');
-      print('BLE Path: ${data.blePath}');
-      print('MCU Path: ${data.mcuPath}');
-      // print('MCU Version: ${data.mcuVersion}');
-      print('Image Paths: ${data.imagePaths}');
-      print('Mandatory Version Check: ${data.mandatoryVersionCheck}');
-      mcuVersion = await _getMCUVersion(data.mcuPath ?? '');
-      print('mcuVersion: $mcuVersion');
+      await response.when(
+        success: (flaskFirmwareResponse) async {
+          print('✅ Firmware fetch successful!');
+          print('Current Version: ${flaskFirmwareResponse.currentVersion}');
+          print('BLE Path: ${flaskFirmwareResponse.blePath}');
+          print('MCU Path: ${flaskFirmwareResponse.mcuPath}');
+          print(
+              'Image Paths: ${flaskFirmwareResponse.imagePaths?.length ?? 0}');
+          if (flaskFirmwareResponse.mcuPath != null) {
+            mcuVersion =
+                _extractMcuVersionSync(flaskFirmwareResponse.mcuPath ?? '');
+            _mcuPath = flaskFirmwareResponse.mcuPath;
+          } else {
+            mcuVersion = '-1';
+          }
+          print('mcuPath: $_mcuPath');
 
-      // Check if the parsed object has mcu_version
-      final parsedJson = data.toJson();
-      print('=== Checking for mcu_version ===');
-      print('Parsed JSON keys: ${parsedJson.keys.toList()}');
-      print(
-          'Has mcu_version in parsed: ${parsedJson.containsKey('mcu_version')}');
-      if (parsedJson.containsKey('mcu_version')) {
-        print('✅ mcu_version value: ${parsedJson['mcu_version']}');
-      } else {
-        print('❌ mcu_version not found in parsed JSON');
-      }
-      // print('Direct mcuVersion property: ${data.mcuVersion}');
-      print('================================');
-      print('============================');
-    }, error: (error) {
-      print('=== ERROR Response ===');
-      print('Error type: ${error.runtimeType}');
-      print('Error toString: ${error.toString()}');
-      print('==================');
-    });
+          // Store both raw response and domain object
+          firmwareInfoRawResponse = flaskFirmwareResponse;
+          firmwareInfo = FlaskFirmwareVersionDomain(flaskFirmwareResponse);
+          print(
+              "________ firmwareInfo: $firmwareInfo  firmwareInfo.hasUpdate: ${firmwareInfo?.hasUpgrade}");
+          // Extract and store upgrade paths from the firmware response
+          _extractUpgradePaths(flaskFirmwareResponse);
 
-    // Method 3: Alternative pattern matching using map()
-    response.map(success: (success) {
-      final data = success.body;
-      print('=== Map Success Pattern ===');
-      print('Success body: $data');
-      print('Success JSON: ${data.toJson()}');
-      print('==========================');
-    }, error: (error) {
-      print('=== Map Error Pattern ===');
-      print('Error object: ${error.error}');
-      print('Error message: ${error.error.toMessage()}');
-      print('Error toString: ${error.error.toString()}');
-      print('========================');
-    });
+          // Debug: Log the stored upgrade paths
+          logStoredUpgradePaths();
 
-    // if (kDebugMode) {
-    //   response = await _flaskRepository.fetchFlaskVersion(
-    //       flaskId: flask.serialId, mcuVersion: 3, bleVersion: '1.4.7');
-    // }
-    response.when(success: (flaskFirmwareResponse) {
-      // Store both raw response and domain object
-      firmwareInfoRawResponse = flaskFirmwareResponse;
-      firmwareInfo = FlaskFirmwareVersionDomain(flaskFirmwareResponse);
+          // Update Flask versions if we have new version info
+          await _updateFlaskVersionsIfNeeded(event, emit);
 
-      print('=== Complete Firmware Response ===');
-      print('Raw Response: ${firmwareInfoRawResponse?.toJson()}');
-      print('Domain Object: ${firmwareInfo}');
-      print('================================');
+          // Clear retry timer and reset counter
+          _firmwareRetryTimer?.cancel();
+          _firmwareRetryCount = 0;
+          emit(FlaskFirmwareInfoFetchedState());
+        },
+        error: (error) {
+          print('❌ Firmware fetch failed: $error');
+          print('Retry count: $_firmwareRetryCount/$_maxRetryAttempts');
 
-      // Extract and store upgrade paths from the firmware response
-      _extractUpgradePaths(flaskFirmwareResponse);
+          if (_firmwareRetryCount < _maxRetryAttempts) {
+            _scheduleRetry(event, emit);
+          } else {
+            print('⛔ Max retries reached. Creating default firmware info.');
+            _firmwareRetryTimer?.cancel();
+            _firmwareRetryCount = 0;
 
-      // Debug: Log the stored upgrade paths
-      logStoredUpgradePaths();
+            // Create default firmware info instead of leaving it null
+            final defaultEntity = FlaskFirmwareVersionEntity(
+              null, // currentVersion
+              null, // blePath
+              null, // mcuPath
+              null, // imagePaths
+              false, // mandatoryVersionCheck
+            );
+            firmwareInfo = FlaskFirmwareVersionDomain(defaultEntity);
 
-      // Update Flask versions if we have new version info
-      _updateFlaskVersionsIfNeeded(event, emit);
+            emit(FlaskFirmwareInfoFetchedState());
+          }
+        },
+      );
+    } catch (error) {
+      print('💥 Unexpected error: $error');
 
-      // Check if firmware info is complete
-      print('~~~~~~~~~~~~~~  mcuPath: $mcuPath');
-      print('~~~~~~~~~~~~~~  imagePaths: $imagePaths');
-
-      bool isComplete = (_mcuPath == null);
-
-      print('Firmware info complete: $isComplete');
-
-      if (isComplete || _firmwareRetryCount >= _maxRetryAttempts) {
-        // Clear retry timer and reset counter
-        _firmwareRetryTimer?.cancel();
-        _firmwareRetryCount = 0;
-        emit(FlaskFirmwareInfoFetchedState());
-        return;
-      } else {
-        // Schedule retry
-        print('Scheduling retry line 235');
-        _scheduleRetry(event, emit);
-      }
-    }, error: (error) {
-      print('Error fetching firmware version: $error');
-      if (_firmwareRetryCount < _maxRetryAttempts) {
-        _scheduleRetry(event, emit);
-      } else {
-        _firmwareRetryTimer?.cancel();
-        _firmwareRetryCount = 0;
-        // Emit error state or empty firmware info
-        emit(FlaskFirmwareInfoFetchedState());
-      }
-    });
-  }
-
-  bool _isFirmwareInfoComplete(FlaskFirmwareVersionDomain firmwareInfo) {
-    // Firmware info is complete when we get a valid response from the server
-    // This includes cases where:
-    // 1. There are upgrades available (has upgrade paths)
-    // 2. There are no upgrades available (all paths null - intentional)
-    // 3. We have a currentVersion (indicates server responded properly)
-
-    print('=== Checking Firmware Info Completeness ===');
-    print('firmwareInfo.hasUpgrade: ${firmwareInfo.hasUpgrade}');
-    print('firmwareInfo.currentVersion: ${firmwareInfo.currentVersion}');
-    print('firmwareInfo.blePath: ${firmwareInfo.blePath}');
-    print('firmwareInfo.mcuPath: ${firmwareInfo.mcuPath}');
-    // print('firmwareInfo.mcuVersion: ${firmwareInfo.mcuVersion}');
-    print('firmwareInfo.imagePath: ${firmwareInfo.imagePath}');
-
-    // Consider complete if:
-    // 1. We have a currentVersion (server responded properly), OR
-    // 2. We have at least one upgrade path available, OR
-    // 3. All paths are explicitly null (no upgrades available)
-
-    // TODO: Check if this is needed
-    // final hasCurrentVersion = firmwareInfo.currentVersion != null &&
-    // firmwareInfo.currentVersion!.isNotEmpty;
-    // final hasUpgradePaths = firmwareInfo.hasUpgrade;
-    final noUpgradePathsExplicit = firmwareInfo.mcuPath == null ||
-        (firmwareInfo.imagePath?.isEmpty ?? true);
-
-    final isComplete = noUpgradePathsExplicit;
-
-    // print('Has current version: $hasCurrentVersion');
-    // print('Has upgrade paths: $hasUpgradePaths');
-    print('firmwareInfo.mcuPath: ${firmwareInfo.mcuPath}');
-    print('firmwareInfo.imagePath: ${firmwareInfo.imagePath}');
-    print('No upgrade paths (explicit): $noUpgradePathsExplicit');
-    print('Is complete: $isComplete');
-    print('==========================================');
-
-    return isComplete;
+      // Create default firmware info for any unexpected errors
+      final defaultEntity = FlaskFirmwareVersionEntity(
+        null,
+        null,
+        null,
+        null,
+        false,
+      );
+      firmwareInfo = FlaskFirmwareVersionDomain(defaultEntity);
+      emit(FlaskFirmwareInfoFetchedState());
+    }
   }
 
   /// Extract upgrade paths from firmware response and store them
@@ -488,6 +425,15 @@ class FlaskPersonalizationBloc
               // Dispatch the updated event to trigger second call
               print('🔄 Dispatching updated event for second call...');
               add(updatedEvent);
+            } else {
+              mcuVersion = _extractVersionFromPath(_mcuPath ?? '');
+              print('No MCU version found : _____  mcuPath: $_mcuPath');
+              print('No MCU version found : _____  mcuVersion: $mcuVersion');
+              final updatedEvent = FetchFlaskFirmwareVersionEvent(
+                mcuVersion: double.tryParse(mcuVersion ?? ''),
+                bleVersion: flask.bleVersion,
+              );
+              add(updatedEvent);
             }
 
             print('Updated BLE manager versions:');
@@ -564,14 +510,15 @@ class FlaskPersonalizationBloc
     });
   }
 
+  // Add other required methods...
   Future<void> _onSetFlaskDetails(
     SetFlaskDetailEvent event,
     Emitter<FlaskPersonalizationState> emit,
   ) async {
     flask = event.flask;
     flaskVolume = event.flask.flaskVolume;
-    isLightMode = event.flask.isLightMode;
     wakeUpFromSleepTime = event.flask.wakeUpFromSleepTime;
+    isLightMode = event.flask.isLightMode;
     selectedColor = event.flask.color ??
         LedLightColorDomain(LedLightColorEntity(
             1, true, 'AA', ['#FF0000', '#00FF00', '#0000FF']));
@@ -631,16 +578,10 @@ class FlaskPersonalizationBloc
     UpdateFlaskRequestEvent event,
     Emitter<FlaskPersonalizationState> emit,
   ) async {
-    final currentUser = await _userRepository.getCurrentUserId();
-    if (currentUser == null) {
-      emit(FlaskPersonalizationApiErrorState(
-          'user_session_expired_message'.localized));
-      Injector.instance<AuthenticationBloc>().add(
-          ExpireUserSessionEvent(resetsDevice: true, deleteAccount: false));
-      return;
-    }
-    emit(FlaskPersonalizationChangingState());
-    final response = await _flaskRepository.updateFlask(
+    try {
+      emit(FlaskPersonalizationChangingState());
+
+      final response = await _flaskRepository.updateFlask(
         bleDeviceId: event.id,
         ledLightMode: event.isLightMode,
         name: event.name,
@@ -648,30 +589,89 @@ class FlaskPersonalizationBloc
         volume: event.volume,
         wakeUpFromSleepTime: wakeUpFromSleepTime,
         bleVersion: event.bleVersion,
-        mcuVersion: event.mcuVersion);
+        mcuVersion: event.mcuVersion,
+      );
 
-    print('update flask response: $response');
-
-    response.when(success: (updateResponse) {
-      emit(FlaskPersonalizationUpdateCompleteState(
-          'ProfileEditScreen_profileUpdateSuccess'.localized,
-          event.navigatesBack));
-    }, error: (error) {
-      print('update flask error: $error');
-    });
+      response.when(
+        success: (flask) {
+          emit(FlaskPersonalizationUpdateCompleteState(
+            'Flask updated successfully'.localized,
+            event.navigatesBack,
+          ));
+        },
+        error: (error) {
+          emit(FlaskPersonalizationApiErrorState(error.toMessage()));
+        },
+      );
+    } catch (e) {
+      emit(FlaskPersonalizationApiErrorState(e.toString()));
+    }
   }
 
   Future<void> _onFlaskPersonalizationSettingsEvent(
     FlaskPersonalizationSettingsEvent event,
     Emitter<FlaskPersonalizationState> emit,
   ) async {
-    final response = await _flaskRepository.fetchFlaskPersonalizationOptions();
-    response.when(
-        success: (flaskPersonalizationSettings) {
-          personalizationSettings = flaskPersonalizationSettings;
+    try {
+      final response =
+          await _flaskRepository.fetchFlaskPersonalizationOptions();
+      response.when(
+        success: (settings) {
+          personalizationSettings = settings;
           emit(FlaskPersonalizationSetState());
         },
-        error: (error) {});
+        error: (error) {
+          emit(FlaskPersonalizationApiErrorState(error.toMessage()));
+        },
+      );
+    } catch (e) {
+      emit(FlaskPersonalizationApiErrorState(e.toString()));
+    }
+  }
+
+  // Additional methods for upgrade paths and data management
+  Map<String, dynamic> getUpgradeData() {
+    return {
+      'flask': flask,
+      'cycleNumber': 5, // Default cycle number
+    };
+  }
+
+  List<Map<String, dynamic>> getAllUpgradeData() {
+    return _firmwareResponses
+        .map((response) => {
+              'blePath': response.blePath,
+              'mcuPath': response.mcuPath,
+              'imagePaths': response.imagePaths,
+              'currentVersion': response.currentVersion,
+              'mandatoryVersionCheck': response.mandatoryVersionCheck,
+              'mcuVersion': _extractMcuVersionSync(response.mcuPath ?? ''),
+            })
+        .toList();
+  }
+
+  void logStoredUpgradePaths() {
+    print('=== Stored Upgrade Paths ===');
+    print('BLE Path: $_blePath');
+    print('MCU Path: $_mcuPath');
+    print('Image Paths: $_imagePaths');
+    print('Has upgrades available: $hasUpgradesAvailable');
+    print('Total firmware responses: ${_firmwareResponses.length}');
+    print('=============================');
+  }
+
+  // Method to check if upgrade is available for specific type
+  bool hasUpgradeForType(String upgradeType) {
+    switch (upgradeType.toLowerCase()) {
+      case 'ble':
+        return _blePath != null;
+      case 'mcu':
+        return _mcuPath != null;
+      case 'images':
+        return _imagePaths.isNotEmpty;
+      default:
+        return false;
+    }
   }
 
   // Method to clear firmware data
@@ -696,87 +696,17 @@ class FlaskPersonalizationBloc
     return null;
   }
 
-  /// Get all upgrade data needed for FlaskUpgradeScreen navigation (latest data)
-  Map<String, dynamic> getUpgradeData() {
-    return {
-      'flask': flask,
-      'blePath': _blePath,
-      'mcuPath': _mcuPath,
-      'imagePaths': List<String>.from(_imagePaths),
-      'hasUpgrades': hasUpgradesAvailable,
-      'cycleNumber': 5, // Default cycle number, can be made configurable
-    };
-  }
-
-  /// Get all firmware responses data as array of upgrade data
-  List<Map<String, dynamic>> getAllUpgradeData() {
-    List<Map<String, dynamic>> allUpgradeData = [];
-
-    for (int i = 0; i < _firmwareResponses.length; i++) {
-      final response = _firmwareResponses[i];
-      allUpgradeData.add({
-        'flask': flask,
-        'blePath': response.blePath,
-        'mcuPath': response.mcuPath,
-        'imagePaths': response.imagePaths ?? [],
-        "mcuVersion": _extractMcuVersionSync(response.mcuPath ?? ''),
-        'targetVersion': response.currentVersion, // Version we're upgrading TO
-        'currentBleVersion': flask?.bleVersion, // Current BLE version on flask
-        'currentMcuVersion': flask?.mcuVersion, // Current MCU version on flask
-        'hasUpgrades': response.blePath != null ||
-            response.mcuPath != null ||
-            (response.imagePaths?.isNotEmpty ?? false),
-        'cycleNumber': 5,
-        'responseIndex': i,
-        'totalResponses': _firmwareResponses.length,
-      });
-      print('All upgrade data mcu path ${i} : ${response.mcuPath}');
-    }
-
-    return allUpgradeData;
-  }
-
-  /// Helper method to check if specific upgrade types are available
-  bool hasUpgradeForType(String type) {
-    switch (type.toLowerCase()) {
-      case 'ble':
-        return _blePath != null;
-      case 'mcu':
-        return _mcuPath != null;
-      case 'images':
-        return _imagePaths.isNotEmpty;
-      default:
-        return false;
-    }
-  }
-
-  /// Debug method to log all stored upgrade paths
-  void logStoredUpgradePaths() {
-    print('=== Stored Upgrade Paths Debug ===');
-    print('Total firmware responses: $firmwareResponseCount');
-    print('');
-    print('=== Latest Paths (Backward Compatibility) ===');
+  // Debug method to print all stored firmware info
+  void logAllFirmwareInfo() {
+    print('=== All Firmware Info ===');
+    print('Current firmwareInfo: $firmwareInfo');
+    print('Raw response: $firmwareInfoRawResponse');
+    print('Complete response: $completeFirmwareResponse');
+    print('Has complete data: $hasCompleteFirmwareData');
+    print('=== Upgrade Paths ===');
     print('BLE Path: $_blePath');
     print('MCU Path: $_mcuPath');
-    print('Image Paths (${_imagePaths.length}): $_imagePaths');
-    print('');
-    print('=== All Upgrade Data Array ===');
-    final allUpgrades = getAllUpgradeData();
-    for (int i = 0; i < allUpgrades.length; i++) {
-      final upgrade = allUpgrades[i];
-      print('Response $i:');
-      print('  BLE Path: ${upgrade['blePath']}');
-      print('  MCU Path: ${upgrade['mcuPath']}');
-      print(
-          '  Image Paths (${upgrade['imagePaths'].length}): ${upgrade['imagePaths']}');
-      print('  Has Upgrades: ${upgrade['hasUpgrades']}');
-      print('');
-    }
-    print('=== Individual Arrays (for reference) ===');
-    print('All BLE Paths (${allBlePaths.length}): $allBlePaths');
-    print('All MCU Paths (${allMcuPaths.length}): $allMcuPaths');
-    print('All Image Paths (${allImagePaths.length}): $allImagePaths');
-    print('');
+    print('Image Paths: $_imagePaths');
     print('=== Status ===');
     print('Has upgrades available: $hasUpgradesAvailable');
     print('Has BLE upgrade: ${hasUpgradeForType('ble')}');
@@ -786,7 +716,7 @@ class FlaskPersonalizationBloc
   }
 
   @override
-  Future<void> close() {
+  Future<void> close() async {
     // Clean up timer when bloc is disposed
     _firmwareRetryTimer?.cancel();
     // Clear firmware data

@@ -10,6 +10,9 @@ class FlaskDomain extends Equatable {
   final FlaskEntity _flaskEntity;
   FlaskEntity get entity => _flaskEntity;
   AppBleModel? appBleModelDevice;
+
+  // Track if any upgrade was ever available
+  bool _hasAnyUpgradeAvailable = false;
   String get id => _flaskEntity.id;
   String get serialId => _flaskEntity.serialId;
 
@@ -23,9 +26,27 @@ class FlaskDomain extends Equatable {
     if (comparableVersionInfo == null) {
       return false;
     }
-    return comparableVersionInfo.blePath != null ||
+
+    // Check if current info has upgrades
+    final hasCurrentUpgrade = comparableVersionInfo.blePath != null ||
         comparableVersionInfo.mcuPath != null ||
         (comparableVersionInfo.imagePath ?? []).isNotEmpty;
+
+    // If we found upgrades this time, remember it
+    if (hasCurrentUpgrade) {
+      _hasAnyUpgradeAvailable = true;
+    }
+
+    // Return true if we ever found upgrades (this call or previous calls)
+    return _hasAnyUpgradeAvailable;
+  }
+
+  // Getter to check if any upgrade was ever available
+  bool get hasAnyUpgradeAvailable => _hasAnyUpgradeAvailable;
+
+  // Method to reset the upgrade flag (call when starting fresh)
+  void resetUpgradeFlag() {
+    _hasAnyUpgradeAvailable = false;
   }
 
   @override

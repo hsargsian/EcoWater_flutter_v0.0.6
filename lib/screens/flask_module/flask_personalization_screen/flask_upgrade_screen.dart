@@ -27,6 +27,7 @@ import 'package:path_provider/path_provider.dart';
 import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:echowater/core/domain/domain_models/flask_option.dart';
+import 'package:flutter/gestures.dart';
 
 /// This screen is used to upgrade the firmware of the flask
 /// It can either show a mock upgrade UI or launch the real OTA upgrade
@@ -331,7 +332,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
       end: Offset.zero,
     ).animate(CurvedAnimation(
       parent: _buttonMoveAnimationController,
-      curve: Curves.easeOutBack,
+      curve: Curves.easeOut,
     ));
 
     // Setup button fade animation
@@ -664,7 +665,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
         setState(() {
           // Increment progress by 0.01 every 100ms (completes in ~10 seconds)
           if (progresses[currentVersion] < 1.0) {
-            // progresses[currentVersion] += 0.1;
+            progresses[currentVersion] += 0.1;
 
             // Ensure we don't exceed 1.0
             if (progresses[currentVersion] > 1.0) {
@@ -718,14 +719,13 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     if (currentVersion < progresses.length - 1 &&
         progresses[currentVersion] >= 1.0) {
       // Animate button disappearing
-      _buttonMoveAnimationController.reverse().then((_) {
-        setState(() {
-          _progressTimer?.cancel();
-          currentVersion++;
-          progresses[currentVersion] = 0.01; // Start next version
-        });
-        _startProgressTimer(); // Restart timer for next version with new button position
+      _buttonMoveAnimationController.reset();
+      setState(() {
+        _progressTimer?.cancel();
+        currentVersion++;
+        progresses[currentVersion] = 0.01; // Start next version
       });
+      _startProgressTimer(); // Restart timer for next version with new button position
     }
   }
 
@@ -803,12 +803,13 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                     ? _handleNextUpdateOrResume
                     : null,
                 child: Text(
-                  isUpgradeInProgress ? "Upgrading..." : "Next Update",
+                  "Next Update",
                   style: TextStyle(
                     fontFamily: StringConstants.golosFont,
                     fontSize: 14,
                     fontStyle: FontStyle.normal,
                     fontWeight: FontWeight.w600,
+                    height: 1, // Proper line height for button text
                     letterSpacing: 0.28,
                   ),
                 ),
@@ -906,7 +907,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
           upgradeData['imagePaths'].isNotEmpty) upgradeTypes.add('Images');
 
       // Use target version if available, otherwise extract from MCU path
-      String versionText = upgradeData['mcuVersion'];
+      String versionText = upgradeData['mcuVersion'] ?? 'Unknown';
       // if (upgradeData['currentMcuVersion'] != null) {
       //   versionText = upgradeData['currentMcuVersion'];
       // } else if (upgradeData['currentBleVersion'] != null) {
@@ -1024,7 +1025,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               letterSpacing: 0.48,
             ),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 12),
           LinearProgressIndicator(
             value: progresses[index],
             backgroundColor: Colors.grey.shade800,
@@ -1036,9 +1037,9 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                     ? Theme.of(context).colorScheme.primary
                     : Colors.grey),
             minHeight: 8,
-            borderRadius: BorderRadius.circular(10),
+            borderRadius: BorderRadius.circular(20),
           ),
-          const SizedBox(height: 4),
+          const SizedBox(height: 12),
           Row(
             mainAxisAlignment: MainAxisAlignment.end,
             children: [
@@ -1056,7 +1057,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 16),
         ],
       ),
     );
@@ -1075,142 +1076,150 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                 child: Padding(
                   padding: const EdgeInsets.all(24),
                   child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      const Text(
-                        'Firmware Update',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontFamily: StringConstants.golosFont,
-                          fontSize: 32,
-                          fontStyle: FontStyle.normal,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 0.48,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        widget.flask?.name ?? 'Flask',
-                        style: TextStyle(
-                          color: Colors.grey,
-                          fontFamily: StringConstants.golosFont,
-                          fontSize: 12,
-                          fontStyle: FontStyle.normal,
-                          fontWeight: FontWeight.w400,
-                          height: 1.3, // 130% = 20.8 / 16 = 1.3
-                          letterSpacing: 0.36,
-                        ),
-                      ),
-                      const SizedBox(height: 32),
-
-                      // Show dynamic progress bars based on allUpgradeData size
-                      if (widget.allUpgradeData != null &&
-                          widget.allUpgradeData!.isNotEmpty) ...[
-                        ..._buildDynamicProgressBars(),
-                        const SizedBox(height: 32),
-                        Center(
-                          child: Text(
-                            _isAllProgressComplete()
-                                ? "FIRMWARE UPDATE: COMPLETE"
-                                : "FIRMWARE UPDATE: IN PROGRESS",
+                      Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'Firmware Update',
                             style: TextStyle(
-                                fontWeight: FontWeight.bold,
-                                color: Colors.white),
+                              color: Colors.white,
+                              fontFamily: StringConstants.golosFont,
+                              fontSize: 28,
+                              fontStyle: FontStyle.normal,
+                              fontWeight: FontWeight.w500,
+                              height: 1.12,
+                              letterSpacing: 0.42,
+                            ),
                           ),
-                        ),
-                        const SizedBox(height: 20),
-                      ],
-
-                      // MCU Version Info Widget
-                      _buildMcuVersionInfo(),
-                      const SizedBox(height: 20),
-
-                      Container(
-                        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFD875),
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SvgPicture.asset(
-                              Images.vectorIcon,
-                              width: 24,
+                          Text(
+                            widget.flask?.name ?? 'Flask',
+                            style: TextStyle(
+                              color: Colors.grey,
+                              fontFamily: StringConstants.golosFont,
+                              fontSize: 12,
+                              fontStyle: FontStyle.normal,
+                              fontWeight: FontWeight.w500,
+                              height: 1.3, // 130% = 20.8 / 16 = 1.3
+                              letterSpacing: 0.36,
                             ),
-                            const SizedBox(height: 2),
-                            const Text(
-                              "Keep your phone unlocked during the firmware update",
-                              style: TextStyle(
-                                fontFamily: StringConstants.golosFont,
-                                color: Colors.black,
-                                fontSize: 22,
-                                fontStyle: FontStyle.normal,
-                                fontWeight: FontWeight.w600,
-                                height: 1.12,
-                                letterSpacing: 0.33,
+                          ),
+                          const SizedBox(height: 16),
+
+                          // Show dynamic progress bars based on allUpgradeData size
+                          if (widget.allUpgradeData != null &&
+                              widget.allUpgradeData!.isNotEmpty) ...[
+                            ..._buildDynamicProgressBars(),
+                            Center(
+                              child: Text(
+                                _isAllProgressComplete()
+                                    ? "FIRMWARE UPDATE: COMPLETE"
+                                    : "FIRMWARE UPDATE: IN PROGRESS",
+                                style: TextStyle(
+                                    fontFamily: StringConstants.golosFont,
+                                    fontSize: 14,
+                                    fontStyle: FontStyle.normal,
+                                    fontWeight: FontWeight.w500,
+                                    height: 1.35, // 130% = 20.8 / 16 = 1.3
+                                    letterSpacing: 0.42,
+                                    color: Colors.white),
                               ),
                             ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              "To avoid issues, please keep the app open, your phone unlocked, and your flask near your phone until the update is complete.",
-                              style: TextStyle(
-                                color: Colors.black,
-                                fontFamily: StringConstants.golosFont,
-                                fontSize: 16,
-                                fontStyle: FontStyle.normal,
-                                fontWeight: FontWeight.w400,
-                                height: 1.3, // 130% = 20.8 / 16 = 1.3
-                                letterSpacing: 0.48,
-                              ),
-                            ),
+                            const SizedBox(height: 16),
                           ],
-                        ),
-                      ),
 
-                      // Add flexible space to push Finish button to bottom
-                      if (_isAllProgressComplete()) ...[
-                        SizedBox(
-                            height: MediaQuery.of(context).size.height * 0.1),
-                        // Add Real OTA Upgrade button before Finish button
-                        SizedBox(
-                          width: double.infinity,
-                          height: 48,
-                          child: ElevatedButton(
-                            onPressed: () {
-                              // Handle finish action here
-                              widget.refreshFlaskVersion?.call(true);
-                              _logService.sendFirmwareUpgradeLogReport(
-                                  mcuVersion: widget.flask?.mcuVersion,
-                                  bleVersion: widget.flask?.bleVersion);
-                              print(
-                                  '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
-                              print(
-                                  '~~~~~~~~~ refreshFlaskVersion.bleVersion: ${widget.flask?.bleVersion} ~~~~~~~~~~ ');
-                              Navigator.of(context)
-                                  .pop(); // Go back to previous screen
-                            },
-                            child: Text(
-                              "Finish",
-                              style: TextStyle(
-                                fontFamily: StringConstants.golosFont,
-                                fontSize: 14,
-                                fontStyle: FontStyle.normal,
-                                fontWeight: FontWeight.w600,
-                                letterSpacing: 0.28,
-                              ),
+                          // MCU Version Info Widget
+                          _buildMcuVersionInfo(),
+                          const SizedBox(height: 20),
+
+                          Container(
+                            padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFFD875),
+                              borderRadius: BorderRadius.circular(8),
                             ),
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: Colors.white,
-                              foregroundColor: Colors.black,
-                              shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                SvgPicture.asset(
+                                  Images.vectorIcon,
+                                  width: 24,
+                                  height: 21,
+                                ),
+                                const SizedBox(height: 6),
+                                const Text(
+                                  "Keep your phone unlocked during the firmware update",
+                                  style: TextStyle(
+                                    fontFamily: StringConstants.golosFont,
+                                    color: Colors.black,
+                                    fontSize: 22,
+                                    fontStyle: FontStyle.normal,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.12,
+                                    letterSpacing: 0.33,
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                const Text(
+                                  "To avoid issues, please keep the app open, your phone unlocked, and your flask near your phone until the update is complete.",
+                                  style: TextStyle(
+                                    color: Colors.black,
+                                    fontFamily: StringConstants.golosFont,
+                                    fontSize: 16,
+                                    fontStyle: FontStyle.normal,
+                                    fontWeight: FontWeight.w500,
+                                    height: 1.3, // 130% = 20.8 / 16 = 1.3
+                                    letterSpacing: 0.42,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (_isAllProgressComplete()) ...[
+                        Padding(
+                          padding: const EdgeInsets.only(top: 16),
+                          child: SizedBox(
+                            width: double.infinity,
+                            height: 50,
+                            child: ElevatedButton(
+                              onPressed: () {
+                                widget.refreshFlaskVersion?.call(true);
+                                _logService.sendFirmwareUpgradeLogReport(
+                                    mcuVersion: widget.flask?.mcuVersion,
+                                    bleVersion: widget.flask?.bleVersion);
+                                print(
+                                    '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
+                                print(
+                                    '~~~~~~~~~ refreshFlaskVersion.bleVersion: ${widget.flask?.bleVersion} ~~~~~~~~~~ ');
+                                Navigator.of(context)
+                                    .pop(); // Go back to previous screen
+                              },
+                              child: Text(
+                                "Finish",
+                                style: TextStyle(
+                                  fontFamily: StringConstants.golosFont,
+                                  fontSize: 16,
+                                  fontStyle: FontStyle.normal,
+                                  fontWeight: FontWeight.w600,
+                                  height:
+                                      1.2, // Proper line height for button text
+                                  letterSpacing: 0.32,
+                                ),
+                              ),
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: Colors.white,
+                                foregroundColor: Colors.black,
+                                shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(height: 8), // 24px distance from bottom
-                      ]
+                      ],
                     ],
                   ),
                 ),
@@ -1355,8 +1364,9 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
           "mcuUpgradePath: ${_processedUpgradeData![currentVersion]['mcuPath']}");
       mcuUpgradePath = _processedUpgradeData![currentVersion]['mcuPath'];
     } else {
-      print("mcuUpgradePath: ${widget.mcuPath}");
-      mcuUpgradePath = widget.mcuPath;
+      print(
+          "mcuUpgradePath: ${_processedUpgradeData![currentVersion]['mcuPath']}");
+      mcuUpgradePath = _processedUpgradeData![currentVersion]['mcuPath'];
     }
 
     if (mcuUpgradePath == null) {
@@ -1791,7 +1801,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     print(
         '   • BLE Path: ${widget.blePath ?? "Not provided (using simulation)"}');
     print(
-        '   • MCU Path: ${widget.mcuPath ?? "Not provided (using simulation)"}');
+        '   • MCU Path: ${_processedUpgradeData![currentVersion]['mcuPath'] ?? "Not provided (using simulation)"}');
     print(
         '   • Image Paths: ${widget.imageLibraryPaths?.length ?? 0} images${widget.imageLibraryPaths?.isEmpty ?? true ? " (using simulation)" : ""}');
     print('   • Total Items to Update: $_totalItemsCount');
@@ -1811,7 +1821,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
       'additional_info': {
         'initial_start_set': {
           'ble_path': widget.blePath,
-          'mcu_path': widget.mcuPath,
+          'mcu_path': _processedUpgradeData![currentVersion]['mcuPath'],
           'images': "No Images",
         }
       }
@@ -1885,7 +1895,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
       return;
     }
 
-    if (widget.mcuPath == null) {
+    if (_processedUpgradeData![currentVersion]['mcuPath'] == null) {
       _initiateImageUpdates();
       return;
     }
@@ -1893,7 +1903,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     print('🟠 ===============================================');
     print('🟠 *** MCU UPDATE STARTED *** 🟠');
     print(
-        '🟠 Initiating MCU Upgrade - Path: ${widget.mcuPath ?? "Not provided (using simulation)"}');
+        '🟠 Initiating MCU Upgrade - Path: ${_processedUpgradeData![currentVersion]['mcuPath'] ?? "Not provided (using simulation)"}');
     print('🟠 ===============================================');
 
     // Show user notification for MCU update start
@@ -2009,6 +2019,136 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
   void _disposeBLEUtil() {
     // Properly dispose BLE utility
     bleUtil.dispose();
+  }
+
+  /// Show error dialog when BLE model is missing and navigate back
+  void _showBleModelErrorDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: const Color(0xFF2E2E2E), // dark background
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Title
+                Text(
+                  'Update error',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Body text
+                RichText(
+                  textAlign: TextAlign.center,
+                  text: TextSpan(
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.5,
+                      color: Colors.white.withOpacity(0.7),
+                    ),
+                    children: [
+                      const TextSpan(
+                          text:
+                              "Please retry the firmware update. If that doesn’t resolve the issue, please check our "),
+                      TextSpan(
+                        text: "help article",
+                        style: const TextStyle(
+                          decoration: TextDecoration.underline,
+                          color: Colors.blueAccent,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () {
+                            // Open help article
+                          },
+                      ),
+                      const TextSpan(text: " or "),
+                      TextSpan(
+                        text: "contact support",
+                        style: const TextStyle(
+                          decoration: TextDecoration.underline,
+                          color: Colors.blueAccent,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () {
+                            // Open contact support
+                          },
+                      ),
+                      const TextSpan(text: "."),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // Buttons
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    // Close Button
+                    TextButton(
+                      onPressed: () {
+                        // Close dialog first
+                        Navigator.of(context).pop();
+                        // Then go back to personalization screen
+                        Navigator.of(context).pop();
+                      },
+                      child: const Text(
+                        "Close Update",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 12),
+
+                    // Retry Button
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                      ),
+                      onPressed: () {
+                        // Retry logic
+                        Navigator.of(context).pop();
+                        print('Retry button pressed');
+                        onUpgradeButtonClick();
+                      },
+                      child: const Text(
+                        "Retry",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   /// Set up MCU version listener for real-time updates
