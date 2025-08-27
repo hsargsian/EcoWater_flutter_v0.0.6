@@ -10,6 +10,7 @@ import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:klaviyo_flutter/klaviyo_flutter.dart';
 import 'package:timezone/data/latest_all.dart' as tz;
+import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 import 'config/http_overrides.dart';
 import 'core/injector/injector.dart';
@@ -33,7 +34,12 @@ void main() async {
   await Injector.init();
   await Injector.instance.allReady();
   await EasyLocalization.ensureInitialized();
-  await Injector.instance<MarketingPushService>().initializeWithKey(key: FlavorConfig.klaviyoApiKey());
+
+  // Safety check: Initialize FlavorConfig if not already initialized
+  await _ensureFlavorConfigInitialized();
+
+  await Injector.instance<MarketingPushService>()
+      .initializeWithKey(key: FlavorConfig.klaviyoApiKey());
   runApp(
     EasyLocalization(
         supportedLocales: const [Locale('en', 'US')],
@@ -47,10 +53,36 @@ Future<void> configureBLEData() async {
   const pref = FlutterSecureStorage();
   final configuredBLE = await pref.read(key: 'configuredBLE') ?? '0';
   if (configuredBLE == '0') {
-    await pref.write(key: 'serviceUUId', value: '65010001-1D0F-47D7-B149-C2FDF0006916');
-    await pref.write(key: 'txCharUUid', value: '65010002-1D0F-47D7-B149-C2FDF0006916');
-    await pref.write(key: 'rxCharUUid', value: '65010003-1D0F-47D7-B149-C2FDF0006916');
+    await pref.write(
+        key: 'serviceUUId', value: '65010001-1D0F-47D7-B149-C2FDF0006916');
+    await pref.write(
+        key: 'txCharUUid', value: '65010002-1D0F-47D7-B149-C2FDF0006916');
+    await pref.write(
+        key: 'rxCharUUid', value: '65010003-1D0F-47D7-B149-C2FDF0006916');
     await pref.write(key: 'configuredBLE', value: '1');
+  }
+}
+
+Future<void> _ensureFlavorConfigInitialized() async {
+  try {
+    // Try to access FlavorConfig to see if it's initialized
+    FlavorConfig.baseUrl();
+  } catch (e) {
+    if (e.toString().contains('LateInitializationError')) {
+      // FlavorConfig not initialized, set up default development configuration
+      await dotenv.load(fileName: '.dev.env');
+      FlavorConfig(
+        flavor: Flavor.dev,
+        values: FlavorValues(
+          baseUrl: dotenv.env['BASEURL'] ?? 'https://dev-api.example.com',
+          useAnalytics: false,
+          logsResponse: true,
+          clickUpApiKey: dotenv.env['CLICKUP_API_KEY'] ?? '',
+          clickUpListId: dotenv.env['CLICKUP_LIST_ID'] ?? '',
+          klaviyoApiKey: dotenv.env['KLAVIYO_API_KEY'] ?? '',
+        ),
+      );
+    }
   }
 }
 

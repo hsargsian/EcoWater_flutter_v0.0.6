@@ -151,6 +151,60 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
   late Animation<Offset> _buttonSlideAnimation;
   late Animation<double> _buttonFadeAnimation;
 
+  /// Wake up the flask device before sending other commands
+  Future<String> wakeUpFlask() async {
+    if (widget.flask == null) {
+      print('❌ No flask provided - cannot send wake up command');
+      return 'No flask device available';
+    }
+
+    try {
+      print('📱 Sending wake up command to flask: ${widget.flask!.name}');
+
+      final response = await BleManager().sendData(
+        widget.flask!,
+        FlaskCommand.wakeUp,
+        FlaskCommand.wakeUp.commandData.addingCRC(),
+      );
+
+      print('✅ Wake up command sent successfully');
+
+      // Standard delay to let flask wake up
+      await Future.delayed(const Duration(milliseconds: 1400));
+
+      return response;
+    } catch (e) {
+      print('❌ Error sending wake up command: $e');
+      return 'Error: $e';
+    }
+  }
+
+  /// Wake up flask and then send a custom command
+  Future<void> wakeUpAndSendCommand(
+      FlaskCommand command, List<int> commandData) async {
+    if (widget.flask == null) {
+      print('❌ No flask provided - cannot send commands');
+      return;
+    }
+
+    try {
+      // Step 1: Wake up flask
+      await wakeUpFlask();
+
+      // Step 2: Send your custom command
+      print('📱 Sending custom command: ${command.name}');
+      await BleManager().sendData(
+        widget.flask!,
+        command,
+        commandData,
+      );
+
+      print('✅ Custom command sent successfully');
+    } catch (e) {
+      print('❌ Error in wake up and send command sequence: $e');
+    }
+  }
+
   @override
   void initState() {
     super.initState();

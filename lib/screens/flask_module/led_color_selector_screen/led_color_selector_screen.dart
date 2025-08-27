@@ -107,19 +107,25 @@ class _LedColorSelectorScreenState extends State<LedColorSelectorScreen> {
                         return LedColorSelectorWrapperView(
                           colorWrapper: item,
                           selectedColor: _selectedColor,
-                          onItemClick: (p0) {
+                          onItemClick: (p0) async {
                             _onColorSelected(p0);
                             final colorValue =
                                 HexColor.averageColorFromGradient(p0.colorHexs);
                             final red = colorValue.red;
                             final green = colorValue.green;
                             final blue = colorValue.blue;
+                            // Send wake up command first
+                            await BleManager().sendData(
+                              widget.flask,
+                              FlaskCommand.wakeUp,
+                              FlaskCommand.wakeUp.commandData.addingCRC(),
+                            );
                             final commandData =
                                 FlaskCommand.colorChange.commandData
                                   ..add(green)
                                   ..add(red)
                                   ..add(blue);
-                            BleManager().sendData(
+                            await BleManager().sendData(
                                 widget.flask,
                                 FlaskCommand.colorChange,
                                 commandData.addingCRC());

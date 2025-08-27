@@ -571,6 +571,22 @@ class _MyDevicesListingScreenState extends State<MyDevicesListingScreen> {
   }
 
   Future<void> _onStartCycle(BuildContext context, FlaskDomain flask) async {
+    // Send wake up command first
+    final wakeUpResponse = await BleManager().sendData(
+      flask,
+      FlaskCommand.wakeUp,
+      FlaskCommand.wakeUp.commandData.addingCRC(),
+    );
+    if (wakeUpResponse.isEmpty) {
+    } else {
+      if (!context.mounted) {
+        return;
+      }
+      setState(() {});
+      Utilities.showSnackBar(context, wakeUpResponse, SnackbarStyle.error);
+    }
+
+    // Then send start cycle command
     final respose = await BleManager().sendData(flask, FlaskCommand.startCycle,
         FlaskCommand.startCycle.commandData.addingCRC());
     if (respose.isEmpty) {
@@ -583,17 +599,55 @@ class _MyDevicesListingScreenState extends State<MyDevicesListingScreen> {
     }
   }
 
-  void _onStopCycle(BuildContext context, FlaskDomain flask) {
-    BleManager().sendData(flask, FlaskCommand.stopCycle,
+  Future<void> _onStopCycle(BuildContext context, FlaskDomain flask) async {
+    // Send wake up command first
+    final wakeUpResponse = await BleManager().sendData(
+      flask,
+      FlaskCommand.wakeUp,
+      FlaskCommand.wakeUp.commandData.addingCRC(),
+    );
+    if (wakeUpResponse.isEmpty) {
+    } else {
+      if (!context.mounted) {
+        return;
+      }
+      setState(() {});
+      Utilities.showSnackBar(context, wakeUpResponse, SnackbarStyle.error);
+    }
+
+    final response = await BleManager().sendData(flask, FlaskCommand.stopCycle,
         FlaskCommand.stopCycle.commandData.addingCRC());
+    if (response.isEmpty) {
+    } else {
+      if (!context.mounted) {
+        return;
+      }
+      setState(() {});
+      Utilities.showSnackBar(context, response, SnackbarStyle.error);
+    }
   }
 
-  void _onConnectFlask(FlaskDomain? flask) {
-    BleManager().updateMyFlasks(_bloc.bleDevicesWrapper.flaskIds);
+  Future<void> _onConnectFlask(FlaskDomain? flask) async {
     if (flask == null) {
       updateLoader(false);
       return;
     }
+
+    final wakeUpResponse = await BleManager().sendData(
+      flask,
+      FlaskCommand.wakeUp,
+      FlaskCommand.wakeUp.commandData.addingCRC(),
+    );
+    if (wakeUpResponse.isEmpty) {
+    } else {
+      if (!context.mounted) {
+        return;
+      }
+      setState(() {});
+      Utilities.showSnackBar(context, wakeUpResponse, SnackbarStyle.error);
+    }
+
+    BleManager().updateMyFlasks(_bloc.bleDevicesWrapper.flaskIds);
 
     BleManager().onSearchComplete = () {
       if (_isDisposed) {
@@ -621,7 +675,7 @@ class _MyDevicesListingScreenState extends State<MyDevicesListingScreen> {
         }
       }
     };
-    BleManager().connectFlask(device: flask, connectTime: 5);
+    await BleManager().connectFlask(device: flask, connectTime: 5);
   }
 
   void _showConnectionErrorAlert() {

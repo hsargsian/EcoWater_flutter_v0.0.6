@@ -607,6 +607,10 @@ class FlaskPersonalizationBloc
     UpdateFlaskName event,
     Emitter<FlaskPersonalizationState> emit,
   ) async {
+    // Send wake up command first
+    await BleManager().sendData(flask, FlaskCommand.wakeUp,
+        FlaskCommand.wakeUp.commandData.addingCRC());
+
     final response =
         await BleManager().sendData(flask, FlaskCommand.updateName, [2]);
     if (response.isNotEmpty) {
@@ -645,13 +649,16 @@ class FlaskPersonalizationBloc
         wakeUpFromSleepTime: wakeUpFromSleepTime,
         bleVersion: event.bleVersion,
         mcuVersion: event.mcuVersion);
-    response.when(
-        success: (updateResponse) {
-          emit(FlaskPersonalizationUpdateCompleteState(
-              'ProfileEditScreen_profileUpdateSuccess'.localized,
-              event.navigatesBack));
-        },
-        error: (error) {});
+
+    print('update flask response: $response');
+
+    response.when(success: (updateResponse) {
+      emit(FlaskPersonalizationUpdateCompleteState(
+          'ProfileEditScreen_profileUpdateSuccess'.localized,
+          event.navigatesBack));
+    }, error: (error) {
+      print('update flask error: $error');
+    });
   }
 
   Future<void> _onFlaskPersonalizationSettingsEvent(

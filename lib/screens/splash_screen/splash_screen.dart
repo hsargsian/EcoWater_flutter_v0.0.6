@@ -14,7 +14,9 @@ class SplashPage extends StatefulWidget {
   State<SplashPage> createState() => _SplashPageState();
 
   static Route<void> route() {
-    return MaterialPageRoute<void>(settings: const RouteSettings(name: '/SplashPage'), builder: (_) => const SplashPage());
+    return MaterialPageRoute<void>(
+        settings: const RouteSettings(name: '/SplashPage'),
+        builder: (_) => const SplashPage());
   }
 }
 
@@ -29,7 +31,8 @@ class _SplashPageState extends State<SplashPage> {
 
   void _checkIfUserSessionExists() {
     Future.delayed(const Duration(seconds: 2), () {
-      Injector.instance<AuthenticationBloc>().add(AuthenticationCheckUserSessionEvent());
+      Injector.instance<AuthenticationBloc>()
+          .add(AuthenticationCheckUserSessionEvent());
     });
   }
 

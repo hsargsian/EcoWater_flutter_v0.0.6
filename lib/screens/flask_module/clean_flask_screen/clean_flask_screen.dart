@@ -138,12 +138,28 @@ class _CleanFlaskScreenState extends State<CleanFlaskScreen> {
                   builder: (context, state) {
                     return AppButton(
                       title: _items[_currentPage].buttonTitle,
-                      onClick: () {
+                      onClick: () async {
                         if (_currentPage == 1 || _currentPage == 2) {
-                          BleManager().sendData(
-                              widget.flask,
-                              FlaskCommand.cleanFlask,
-                              FlaskCommand.cleanFlask.commandData.addingCRC());
+                          // Send wake up command first
+                          final wakeUpResponse = await BleManager().sendData(
+                            widget.flask,
+                            FlaskCommand.wakeUp,
+                            FlaskCommand.wakeUp.commandData.addingCRC(),
+                          );
+                          if (wakeUpResponse.isEmpty) {
+                          } else {
+                            if (!context.mounted) {
+                              return;
+                            }
+                            setState(() {});
+                            Utilities.showSnackBar(
+                                context, wakeUpResponse, SnackbarStyle.error);
+                            await BleManager().sendData(
+                                widget.flask,
+                                FlaskCommand.cleanFlask,
+                                FlaskCommand.cleanFlask.commandData
+                                    .addingCRC());
+                          }
                         } else if (_currentPage == 3) {
                           _bloc.add(AddFlaskCleanLogEvent(flask: widget.flask));
                         }

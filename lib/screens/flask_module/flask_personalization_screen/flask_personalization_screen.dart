@@ -638,9 +638,18 @@ class _FlaskPersonalizationScreenState
                     ),
                     Switch(
                         value: _bloc.isLightMode,
-                        onChanged: (flag) {
+                        onChanged: (flag) async {
                           _bloc.add(UpdateFlaskLightMode(isLightMode: flag));
-                          BleManager().sendData(
+
+                          // Send wake up command first
+                          await BleManager().sendData(
+                            widget.flask,
+                            FlaskCommand.wakeUp,
+                            FlaskCommand.wakeUp.commandData.addingCRC(),
+                          );
+
+                          // Then send light/dark mode command
+                          await BleManager().sendData(
                               widget.flask,
                               flag
                                   ? FlaskCommand.changeLightMode
@@ -765,11 +774,18 @@ class _FlaskPersonalizationScreenState
                     ),
                     Switch(
                         value: _currentVolumeValue != 0,
-                        onChanged: (flag) {
+                        onChanged: (flag) async {
+                          // Send wake up command first
+                          await BleManager().sendData(
+                            widget.flask,
+                            FlaskCommand.wakeUp,
+                            FlaskCommand.wakeUp.commandData.addingCRC(),
+                          );
+
                           _bloc.add(UpdateFlaskVolume(volume: flag ? 100 : 0));
                           final command = FlaskCommand.updateVolume.commandData
                             ..add(flag ? 1 : 0);
-                          BleManager().sendData(widget.flask,
+                          await BleManager().sendData(widget.flask,
                               FlaskCommand.updateVolume, command.addingCRC());
                         }),
                   ],
@@ -824,13 +840,17 @@ class _FlaskPersonalizationScreenState
                 _currentWakeUpValue = val.toInt();
                 setState(() {});
               },
-              onChangeEnd: (value) {
+              onChangeEnd: (value) async {
+                // Send wake up command first
+                await BleManager().sendData(widget.flask, FlaskCommand.wakeUp,
+                    FlaskCommand.wakeUp.commandData.addingCRC());
+
                 _bloc.add(
                     UpdateFlaskWakeUpFromSleepTime(seconds: value.toInt()));
                 final command = FlaskCommand.wakeFromSleep.commandData
                   ..add(value.toInt());
-                BleManager().sendData(widget.flask, FlaskCommand.wakeFromSleep,
-                    command.addingCRC());
+                await BleManager().sendData(widget.flask,
+                    FlaskCommand.wakeFromSleep, command.addingCRC());
               },
             ),
             const SizedBox(

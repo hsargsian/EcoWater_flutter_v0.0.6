@@ -94,15 +94,15 @@ enum FlaskOption {
 }
 
 enum FlaskCommand {
-  startCycle,
-  stopCycle,
-  cleanFlask,
-  colorChange,
-  changeLightMode,
-  changeDarkMode,
-  updateVolume,
-  wakeFromSleep,
-  updateName,
+  startCycle, //Done
+  stopCycle, //Done
+  cleanFlask, //Done
+  colorChange, //Done
+  changeLightMode, //Done
+  changeDarkMode, //Done
+  updateVolume, //Done
+  wakeFromSleep, //Done
+  updateName, //Done
   updateFlaskGoal,
   updateH2Goal,
   updateStreakGoal,
