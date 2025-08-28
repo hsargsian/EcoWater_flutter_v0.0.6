@@ -412,7 +412,7 @@ class FlaskPersonalizationBloc
           if (manager != null) {
             manager.bleVersion = updatedFlask.bleVersion;
             if (updatedFlask.mcuVersion != null) {
-              manager.mcuVersion = double.tryParse(updatedFlask.mcuVersion!);
+              // manager.mcuVersion = double.tryParse(updatedFlask.mcuVersion!);
 
               // Option 1: Create new event with updated versions
               final updatedEvent = FetchFlaskFirmwareVersionEvent(

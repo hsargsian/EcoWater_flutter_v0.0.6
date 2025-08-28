@@ -28,8 +28,7 @@ class FlaskDomain extends Equatable {
     }
 
     // Check if current info has upgrades
-    final hasCurrentUpgrade = comparableVersionInfo.blePath != null ||
-        comparableVersionInfo.mcuPath != null ||
+    final hasCurrentUpgrade = comparableVersionInfo.mcuPath != null ||
         (comparableVersionInfo.imagePath ?? []).isNotEmpty;
 
     // If we found upgrades this time, remember it
