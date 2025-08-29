@@ -290,7 +290,7 @@ class _FlaskPersonalizationScreenState
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 15),
       child: Text(
-          'Version: ${manager.bleVersion ?? ''}(${manager.mcuVersion ?? ''})'),
+          'Version: ${manager.bleVersion ?? ''}${manager.mcuVersion != null ? '(${manager.mcuVersion})' : ''}'),
     );
   }
 

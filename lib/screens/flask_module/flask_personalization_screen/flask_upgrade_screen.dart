@@ -29,6 +29,9 @@ import 'package:http/http.dart' as http;
 import 'package:echowater/core/domain/domain_models/flask_option.dart';
 import 'package:flutter/gestures.dart';
 
+/// Required for unawaited calls
+import 'dart:async' show unawaited;
+
 /// This screen is used to upgrade the firmware of the flask
 /// It can either show a mock upgrade UI or launch the real OTA upgrade
 
@@ -811,8 +814,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
-                onPressed: (canProceed && !isUpgradeInProgress)
-                    //  && hasMcuVersion) ---- HOVO
+                onPressed: (canProceed && !isUpgradeInProgress && hasMcuVersion)
                     ? _handleNextUpdateOrResume
                     : null,
                 child: Text(
@@ -2010,6 +2012,35 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     await _onFullFirmwareUpdateCompleted(isSuccess: true);
   }
 
+  /// Retry the current version upgrade by resetting progress and restarting
+  Future<void> _retryCurrentVersionUpgrade() async {
+    print('🔄 RETRYING CURRENT VERSION UPGRADE: Version ${currentVersion + 1}');
+
+    // Reset the current version progress
+    setState(() {
+      progresses[currentVersion] = 0.0;
+      _updateStatus = UpdateStatus.idle;
+      _currentItemProgress = 0.0;
+      _completedItemsCount = 0;
+      _overallProgress = 0.0;
+      _isCurrentItemComplete = false;
+    });
+
+    // Show retrying state to user
+    _setUpdateState('Retrying firmware upgrade...');
+
+    // Reset flags
+    _hasUpdatedBLE = false;
+    _hasUpdatedMCU = false;
+    _cyclesCount = widget.cycleNumber ?? 5; // Reset retry count
+
+    print('🔄 Retrying current version upgrade');
+
+    // Restart the upgrade for current version
+    _initializeProgress();
+    onUpgradeButtonClick();
+  }
+
   Future<void> _onImageLibraryUpdateFailed() async {
     await bleUtil.disconnect();
     if (_updateType == UpdateType.images) {
@@ -2040,6 +2071,9 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
         "~~~~~~~~~ FIRMWARE UPDATE COMPLETED ~~~~~~~~~ isSuccess: $isSuccess");
     showToast(context, message,
         style: isSuccess ? SnackbarStyle.success : SnackbarStyle.error);
+    if (!isSuccess) {
+      showUpdateErrorDialog(context);
+    }
     _setUpdateState(message);
     _updateStatus =
         isSuccess ? UpdateStatus.updateSuccess : UpdateStatus.updateFailed;
@@ -2077,21 +2111,26 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                 Text(
                   'Update error',
                   style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
+                    color: const Color(0xFFF2F6F8),
+                    fontSize: 24,
+                    fontFamily: StringConstants.golosFont,
+                    fontWeight: FontWeight.w500,
+                    height: 1.12,
+                    letterSpacing: 0.36,
                   ),
                 ),
                 const SizedBox(height: 16),
 
                 // Body text
                 RichText(
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.justify,
                   text: TextSpan(
                     style: TextStyle(
                       fontSize: 14,
                       height: 1.5,
-                      color: Colors.white.withOpacity(0.7),
+                      fontFamily: StringConstants.golosFont,
+                      fontWeight: FontWeight.w400,
+                      color: Colors.black.withValues(alpha: 0.20),
                     ),
                     children: [
                       const TextSpan(
@@ -2101,7 +2140,11 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                         text: "help article",
                         style: const TextStyle(
                           decoration: TextDecoration.underline,
-                          color: Colors.blueAccent,
+                          color: const Color(0xFFF2F6F8),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.28,
+                          fontFamily: StringConstants.golosFont,
                         ),
                         recognizer: TapGestureRecognizer()
                           ..onTap = () {
@@ -2113,7 +2156,11 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                         text: "contact support",
                         style: const TextStyle(
                           decoration: TextDecoration.underline,
-                          color: Colors.blueAccent,
+                          color: const Color(0xFFF2F6F8),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.28,
+                          fontFamily: StringConstants.golosFont,
                         ),
                         recognizer: TapGestureRecognizer()
                           ..onTap = () {
@@ -2165,10 +2212,14 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                         ),
                       ),
                       onPressed: () {
-                        // Retry logic
+                        // Close dialog first
                         Navigator.of(context).pop();
-                        print('Retry button pressed');
-                        onUpgradeButtonClick();
+                        // Then go back to personalization screen
+                        Navigator.of(context).pop();
+                        print(
+                            'Retrying current version upgrade from BLE model error dialog');
+                        // Call the proper retry method that resets progress
+                        _retryCurrentVersionUpgrade();
                       },
                       child: const Text(
                         "Retry",
@@ -2295,19 +2346,22 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               mainAxisSize: MainAxisSize.min,
               children: [
                 // Title
-                Text(
-                  'Update error',
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    color: Colors.white,
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    'Update error',
+                    style: TextStyle(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w700,
+                      color: Colors.white,
+                    ),
                   ),
                 ),
                 const SizedBox(height: 16),
 
                 // Body text
                 RichText(
-                  textAlign: TextAlign.center,
+                  textAlign: TextAlign.justify,
                   text: TextSpan(
                     style: TextStyle(
                       fontSize: 14,
@@ -2322,7 +2376,10 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                         text: "help article",
                         style: const TextStyle(
                           decoration: TextDecoration.underline,
-                          color: Colors.blueAccent,
+                          color: const Color(0xFFF2F6F8),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.28,
                         ),
                         recognizer: TapGestureRecognizer()
                           ..onTap = () {
@@ -2334,7 +2391,10 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                         text: "contact support",
                         style: const TextStyle(
                           decoration: TextDecoration.underline,
-                          color: Colors.blueAccent,
+                          color: const Color(0xFFF2F6F8),
+                          fontSize: 14,
+                          fontWeight: FontWeight.w500,
+                          letterSpacing: 0.28,
                         ),
                         recognizer: TapGestureRecognizer()
                           ..onTap = () {
@@ -2385,10 +2445,11 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                       ),
                       onPressed: () {
                         print("~~~~~~~~~ RETRY BUTTON PRESSED ~~~~~~~~~");
-                        // Retry logic
+                        // Close dialog first
                         Navigator.of(context).pop();
-                        print('Retry button pressed');
-                        onUpgradeButtonClick();
+                        print('Retrying current version upgrade with reset');
+                        // Call the proper retry method that resets progress
+                        _retryCurrentVersionUpgrade();
                       },
                       child: const Text(
                         "Retry",
