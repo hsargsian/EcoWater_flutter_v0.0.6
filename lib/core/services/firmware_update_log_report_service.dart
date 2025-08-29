@@ -89,10 +89,16 @@ class FirmwareUpdateLogReportService {
     await jsonFile.writeAsString(jsonString);
     try {
       await _otherRepository?.addNewLog(_flask?.serialId, hasError, jsonFile);
+      if (kDebugMode) {
+        print('✅ Firmware upgrade log sent successfully');
+      }
     } on Exception catch (e) {
       if (kDebugMode) {
-        print(e);
+        print('⚠️ Failed to send firmware upgrade log (non-critical): $e');
       }
+      // Store the failed log for retry later
+      await _pref.write(
+          key: 'firmware_upgrade_tracking_log_failed', value: jsonString);
     }
 
     _clearFirmwareUpgradeCacheReport();

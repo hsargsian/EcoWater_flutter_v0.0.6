@@ -733,7 +733,10 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     _hasUpdatedMCU = false;
     _hasUpdatedBLE = false;
 
-    widget.refreshFlaskVersion?.call(true);
+    // Only call refreshFlaskVersion if we actually completed an upgrade
+    if (progresses[currentVersion] >= 1.0) {
+      widget.refreshFlaskVersion?.call(true);
+    }
 
     print(
         '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
@@ -741,9 +744,18 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
         '~~~~~~~~~ refreshFlaskVersion.bleVersion: ${widget.flask?.bleVersion} ~~~~~~~~~~ ');
     print(
         '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
-    _logService.sendFirmwareUpgradeLogReport(
-        mcuVersion: widget.flask?.mcuVersion,
-        bleVersion: widget.flask?.bleVersion);
+
+    // Only send log report if we have valid version info
+    if (widget.flask?.mcuVersion != null && widget.flask?.bleVersion != null) {
+      try {
+        _logService.sendFirmwareUpgradeLogReport(
+            mcuVersion: widget.flask?.mcuVersion,
+            bleVersion: widget.flask?.bleVersion);
+      } catch (e) {
+        print('⚠️ Error sending firmware upgrade log: $e');
+        // Don't block UI for logging errors
+      }
+    }
 
     if (progresses[currentVersion] >= 1.0 &&
         currentVersion < progresses.length - 1) {
@@ -799,7 +811,8 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               width: double.infinity,
               height: 48,
               child: ElevatedButton(
-                onPressed: (canProceed && !isUpgradeInProgress && hasMcuVersion)
+                onPressed: (canProceed && !isUpgradeInProgress)
+                    //  && hasMcuVersion) ---- HOVO
                     ? _handleNextUpdateOrResume
                     : null,
                 child: Text(
@@ -1186,10 +1199,22 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                             height: 50,
                             child: ElevatedButton(
                               onPressed: () {
-                                widget.refreshFlaskVersion?.call(true);
-                                _logService.sendFirmwareUpgradeLogReport(
-                                    mcuVersion: widget.flask?.mcuVersion,
-                                    bleVersion: widget.flask?.bleVersion);
+                                // Only call refreshFlaskVersion and log if upgrade is complete
+                                if (_isAllProgressComplete()) {
+                                  widget.refreshFlaskVersion?.call(true);
+
+                                  if (widget.flask?.mcuVersion != null &&
+                                      widget.flask?.bleVersion != null) {
+                                    try {
+                                      _logService.sendFirmwareUpgradeLogReport(
+                                          mcuVersion: widget.flask?.mcuVersion,
+                                          bleVersion: widget.flask?.bleVersion);
+                                    } catch (e) {
+                                      print(
+                                          '⚠️ Error sending firmware upgrade log: $e');
+                                    }
+                                  }
+                                }
                                 print(
                                     '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
                                 print(
@@ -1268,6 +1293,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
               'Somehow the Flask doesnt have the app ble model will be using flask serial id',
         }
       });
+      print("~~~~~~~~~ FIRMWARE UPDATE FAILED ~~~~~~~~~");
     }
     await bleUtil.checkBleState(context, () async {
       _updateStatus = UpdateStatus.updating;
@@ -1311,6 +1337,8 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                 'message': "Somehow the Flask's device was not found at all",
               }
             });
+            print(
+                "~~~~~~~~~ FIRMWARE UPDATE FAILED ~~~~~~~~~ Device not found that needs the update");
             showToast(context, 'Device not found that needs the update');
             await _onFullFirmwareUpdateCompleted(isSuccess: false);
           }
@@ -1837,10 +1865,17 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     await BleManager().disconnect(widget.flask!);
     BleManager().updateScanResultListener(isPause: true);
 
-    widget.refreshFlaskVersion?.call(true);
-    _logService.sendFirmwareUpgradeLogReport(
-        mcuVersion: widget.flask?.mcuVersion,
-        bleVersion: widget.flask?.bleVersion);
+    // Don't call refreshFlaskVersion here as upgrade is just starting
+    // Only log if we have valid version info
+    if (widget.flask?.mcuVersion != null && widget.flask?.bleVersion != null) {
+      try {
+        _logService.sendFirmwareUpgradeLogReport(
+            mcuVersion: widget.flask?.mcuVersion,
+            bleVersion: widget.flask?.bleVersion);
+      } catch (e) {
+        print('⚠️ Error sending firmware upgrade log: $e');
+      }
+    }
     print(
         '~~~~~~~~~ refreshFlaskVersion.mcuVersion: ${widget.flask?.mcuVersion} ~~~~~~~~~~ ');
     print(
@@ -2001,6 +2036,8 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     });
     final message =
         isSuccess ? 'Firmware successfully updated.' : 'Firmware update failed';
+    print(
+        "~~~~~~~~~ FIRMWARE UPDATE COMPLETED ~~~~~~~~~ isSuccess: $isSuccess");
     showToast(context, message,
         style: isSuccess ? SnackbarStyle.success : SnackbarStyle.error);
     _setUpdateState(message);
@@ -2059,7 +2096,7 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
                     children: [
                       const TextSpan(
                           text:
-                              "Please retry the firmware update. If that doesn’t resolve the issue, please check our "),
+                              "Please retry the firmware update. If that doesn't resolve the issue, please check our "),
                       TextSpan(
                         text: "help article",
                         style: const TextStyle(
@@ -2243,8 +2280,131 @@ class _FlaskUpgradeScreenState extends State<FlaskUpgradeScreen>
     }
   }
 
-  // // Add unawaited helper if not imported
-  // void unawaited(Future<void> future) {
-  //   // Intentionally not awaiting
-  // }
+  void showUpdateErrorDialog(BuildContext context) {
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) {
+        return Dialog(
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+          backgroundColor: const Color(0xFF2E2E2E), // dark background
+          child: Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                // Title
+                Text(
+                  'Update error',
+                  style: TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+                const SizedBox(height: 16),
+
+                // Body text
+                RichText(
+                  textAlign: TextAlign.center,
+                  text: TextSpan(
+                    style: TextStyle(
+                      fontSize: 14,
+                      height: 1.5,
+                      color: Colors.white.withOpacity(0.7),
+                    ),
+                    children: [
+                      const TextSpan(
+                          text:
+                              "Please retry the firmware update. If that doesn't resolve the issue, please check our "),
+                      TextSpan(
+                        text: "help article",
+                        style: const TextStyle(
+                          decoration: TextDecoration.underline,
+                          color: Colors.blueAccent,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () {
+                            // Open help article
+                          },
+                      ),
+                      const TextSpan(text: " or "),
+                      TextSpan(
+                        text: "contact support",
+                        style: const TextStyle(
+                          decoration: TextDecoration.underline,
+                          color: Colors.blueAccent,
+                        ),
+                        recognizer: TapGestureRecognizer()
+                          ..onTap = () {
+                            // Open contact support
+                          },
+                      ),
+                      const TextSpan(text: "."),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // Buttons
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    // Close Button
+                    TextButton(
+                      onPressed: () {
+                        Navigator.of(context).pop();
+                        Navigator.of(context).pop();
+                      },
+                      child: const Text(
+                        "Close Update",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+
+                    const SizedBox(width: 12),
+
+                    // Retry Button
+                    ElevatedButton(
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12),
+                        ),
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
+                      ),
+                      onPressed: () {
+                        print("~~~~~~~~~ RETRY BUTTON PRESSED ~~~~~~~~~");
+                        // Retry logic
+                        Navigator.of(context).pop();
+                        print('Retry button pressed');
+                        onUpgradeButtonClick();
+                      },
+                      child: const Text(
+                        "Retry",
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
 }

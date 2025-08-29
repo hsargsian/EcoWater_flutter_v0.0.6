@@ -315,7 +315,21 @@ class _FlaskPersonalizationScreenState
           imageLibraryPaths: _bloc.imagePaths,
           refreshFlaskVersion: (didUpgradeFirmware) {
             _canShowUpgradeButton = !didUpgradeFirmware;
-            _updateFlask(navigatesBack: false);
+            // Only update flask if firmware upgrade was successful and we have a connected manager
+            if (didUpgradeFirmware) {
+              final manager = BleManager().getManager(widget.flask);
+              if (manager != null) {
+                // Wait a bit for the device to stabilize after firmware update
+                Future.delayed(const Duration(seconds: 2), () {
+                  try {
+                    _updateFlask(navigatesBack: false);
+                  } catch (e) {
+                    print('⚠️ Error updating flask after firmware upgrade: $e');
+                    // Don't show error to user as this is just version sync
+                  }
+                });
+              }
+            }
           },
           showMockUI: false, // Set to false for real OTA upgrade
         ),
@@ -367,7 +381,21 @@ class _FlaskPersonalizationScreenState
           allUpgradeData: _bloc.getAllUpgradeData(), // Pass all upgrade data
           refreshFlaskVersion: (didUpgradeFirmware) {
             _canShowUpgradeButton = !didUpgradeFirmware;
-            _updateFlask(navigatesBack: false);
+            // Only update flask if firmware upgrade was successful and we have a connected manager
+            if (didUpgradeFirmware) {
+              final manager = BleManager().getManager(widget.flask);
+              if (manager != null) {
+                // Wait a bit for the device to stabilize after firmware update
+                Future.delayed(const Duration(seconds: 2), () {
+                  try {
+                    _updateFlask(navigatesBack: false);
+                  } catch (e) {
+                    print('⚠️ Error updating flask after firmware upgrade: $e');
+                    // Don't show error to user as this is just version sync
+                  }
+                });
+              }
+            }
           },
           showMockUI: false, // Set to false for real OTA upgrade
         ),
